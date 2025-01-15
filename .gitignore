@@ -1,0 +1,18 @@
+# Ignore data directories
+src/data/label_2/
+src/data/training/
+
+# Common Python ignores
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ROS 2 specific ignores
+build/
+install/
+log/
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp 
