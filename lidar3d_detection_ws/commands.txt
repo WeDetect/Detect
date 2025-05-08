@@ -1,0 +1,6 @@
+evaluate command:
+ python3 train/models/evaluate.py   --data_dir /lidar3d_detection_ws/data/innoviz   --label_dir /lidar3d_detection_ws/labels   --config_path /lidar3d_detection_ws/train/config/preprocessing_config.yaml   --classes_json /lidar3d_detection_ws/labels/_classes.json   --weights /lidar3d_detection_ws/train/output/yolo_bev_final.pth   --output_dir /lidar3d_detection_ws/train/output/eval   --conf_thres 0.7
+
+
+train command:
+python3 train/main.py --epochs 20 --learning_rate 0.001 --batch_size 2 --data_dir /lidar3d_detection_ws/data/innoviz --label_dir /lidar3d_detection_ws/labels --config_path /lidar3d_detection_ws/train/config/preprocessing_config.yaml --classes_json /lidar3d_detection_ws/labels/_classes.json --output_dir /lidar3d_detection_ws/train/output

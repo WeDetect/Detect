@@ -1,0 +1,437 @@
+import numpy as np
+import cv2
+import yaml
+from pathlib import Path
+import struct
+import sys
+from sklearn.cluster import DBSCAN
+from sklearn.cluster import KMeans
+
+
+def load_config(config_path):
+    """Load configuration from YAML file"""
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+def read_bin_file(bin_path):
+    """Read point cloud from binary file"""
+    points = np.fromfile(bin_path, dtype=np.float32).reshape(-1, 4)
+    return points
+
+def read_label_file(label_path):
+    """Read KITTI format label file"""
+    labels = []
+    if Path(label_path).exists():
+        with open(label_path, 'r') as f:
+            for line in f:
+                values = line.strip().split(' ')
+                labels.append({
+                    'type': values[0],
+                    'truncated': float(values[1]),
+                    'occluded': int(values[2]),
+                    'alpha': float(values[3]),
+                    'bbox': [float(x) for x in values[4:8]],
+                    'dimensions': [float(x) for x in values[8:11]],
+                    'location': [float(x) for x in values[11:14]],
+                    'rotation_y': float(values[14])
+                })
+    return labels
+
+def create_bev_image(points, config, labels=None):
+    """Create bird's eye view image from point cloud without label boxes"""
+    # Get dimensions from config
+    Height = config['BEV_HEIGHT']
+    Width = config['BEV_WIDTH']
+    
+    # Create a copy of points to avoid modifying the original
+    points_copy = np.copy(points)
+    
+    # Filter points within boundaries
+    if 'boundary' in config:
+        mask = (points_copy[:, 0] >= config['boundary']['minX']) & (points_copy[:, 0] <= config['boundary']['maxX']) & \
+               (points_copy[:, 1] >= config['boundary']['minY']) & (points_copy[:, 1] <= config['boundary']['maxY']) & \
+               (points_copy[:, 2] >= config['boundary']['minZ']) & (points_copy[:, 2] <= config['boundary']['maxZ'])
+        points_copy = points_copy[mask]
+    
+    # Discretize Feature Map
+    points_copy[:, 0] = np.int_(np.floor(points_copy[:, 0] / config['DISCRETIZATION']))
+    points_copy[:, 1] = np.int_(np.floor(points_copy[:, 1] / config['DISCRETIZATION']) + Width / 2)
+    
+    # Ensure indices are within bounds
+    points_copy[:, 0] = np.clip(points_copy[:, 0], 0, Height - 1)
+    points_copy[:, 1] = np.clip(points_copy[:, 1], 0, Width - 1)
+    
+    # Sort points by height (z) and get unique x,y coordinates
+    sorted_indices = np.lexsort((-points_copy[:, 2], points_copy[:, 1], points_copy[:, 0]))
+    points_copy = points_copy[sorted_indices]
+    _, unique_indices, unique_counts = np.unique(points_copy[:, 0:2], axis=0, return_index=True, return_counts=True)
+    points_top = points_copy[unique_indices]
+    
+    # Create height, intensity and density maps
+    heightMap = np.zeros((Height, Width))
+    intensityMap = np.zeros((Height, Width))
+    densityMap = np.zeros((Height, Width))
+    
+    # Calculate max height for normalization
+    max_height = float(np.abs(config['boundary']['maxZ'] - config['boundary']['minZ']))
+    
+    # Fill the maps
+    valid_indices = (points_top[:, 0] < Height) & (points_top[:, 1] < Width)
+    heightMap[np.int_(points_top[valid_indices, 0]), np.int_(points_top[valid_indices, 1])] = points_top[valid_indices, 2] / max_height
+    
+    normalizedCounts = np.minimum(1.0, np.log(unique_counts + 1) / np.log(64))
+    intensityMap[np.int_(points_top[valid_indices, 0]), np.int_(points_top[valid_indices, 1])] = points_top[valid_indices, 3]
+    densityMap[np.int_(points_top[valid_indices, 0]), np.int_(points_top[valid_indices, 1])] = normalizedCounts[valid_indices]
+    
+    # Create RGB map
+    RGB_Map = np.zeros((3, Height, Width))
+    RGB_Map[2, :, :] = densityMap  # r_map
+    RGB_Map[1, :, :] = heightMap  # g_map
+    RGB_Map[0, :, :] = intensityMap  # b_map
+    
+    # Prepare white dots for label points (but don't draw them)
+    white_dots_mask = np.zeros((Height, Width), dtype=bool)
+    
+    # Process labels and mark their positions (for tracking, not for display)
+    if labels is not None:
+        for label in labels:
+            try:
+                # Skip DontCare objects
+                if label['type'] == 'DontCare':
+                    continue
+                
+                # Get location (x, y, z in KITTI format)
+                x = label['location'][0]  # x
+                y = label['location'][1]  # y
+                
+                # Convert to BEV pixel coordinates before rotation
+                x_bev = int(x / config['DISCRETIZATION'])
+                y_bev = int(y / config['DISCRETIZATION'] + Width / 2)
+                
+                # Ensure within bounds
+                if 0 <= x_bev < Height and 0 <= y_bev < Width:
+                    # Mark a 3x3 area around the point
+                    for dx in range(-1, 2):
+                        for dy in range(-1, 2):
+                            nx, ny = x_bev + dx, y_bev + dy
+                            if 0 <= nx < Height and 0 <= ny < Width:
+                                white_dots_mask[nx, ny] = True
+            except Exception as e:
+                print(f"Error processing label point: {e}")
+                continue
+    
+    # Rotate the map by 180 degrees for proper orientation
+    RGB_Map = np.rot90(RGB_Map, 2, axes=(1, 2))
+    rotated_white_dots_mask = np.rot90(white_dots_mask, 2)
+    
+    # Convert to image format (H, W, C) and scale to 0-255
+    bev_image = (RGB_Map.transpose(1, 2, 0) * 255).astype(np.uint8)
+    
+    # Find the non-zero region of the image
+    non_zero_mask = np.any(bev_image > 0, axis=2)
+    crop_info = None
+    
+    if np.any(non_zero_mask):
+        rows = np.any(non_zero_mask, axis=1)
+        cols = np.any(non_zero_mask, axis=0)
+        row_indices = np.where(rows)[0]
+        col_indices = np.where(cols)[0]
+        if len(row_indices) > 0 and len(col_indices) > 0:
+            y_min, y_max = row_indices[[0, -1]]
+            x_min, x_max = col_indices[[0, -1]]
+            
+            # Add some padding
+            padding = 10
+            y_min = max(0, y_min - padding)
+            y_max = min(Height - 1, y_max + padding)
+            x_min = max(0, x_min - padding)
+            x_max = min(Width - 1, x_max + padding)
+            
+            # Save crop information for later use
+            crop_info = (y_min, y_max, x_min, x_max)
+            
+            # Crop to the non-zero region
+            cropped_image = bev_image[y_min:y_max+1, x_min:x_max+1]
+            cropped_white_dots = rotated_white_dots_mask[y_min:y_max+1, x_min:x_max+1]
+            
+            # Resize to the original dimensions
+            bev_image = cv2.resize(cropped_image, (Width, Height), interpolation=cv2.INTER_LINEAR)
+            
+            # Also resize the white dots mask
+            resized_white_dots = cv2.resize(cropped_white_dots.astype(np.uint8), (Width, Height), interpolation=cv2.INTER_NEAREST)
+            white_dots_positions = np.where(resized_white_dots > 0)
+    
+    return bev_image, white_dots_positions
+
+
+def draw_labels_on_bev(bev_image, labels, config, white_dots_positions=None):
+    """
+    Draw labels on a BEV image.
+    
+    Args:
+        bev_image: Bird's eye view image
+        labels: List of label dictionaries in KITTI format
+        config: Configuration dictionary
+        white_dots_positions: Optional positions of white dots
+        
+    Returns:
+        BEV image with labels drawn
+    """
+    if labels is None or white_dots_positions is None:
+        return bev_image
+    
+    # Create a copy of the image to avoid modifying the original
+    labeled_image = bev_image.copy()
+    
+    # Define colors for classes (from _classes.json)
+    class_colors = {
+        'DontCare': (0, 0, 255),    # Red in BGR
+        'Car': (196, 255, 0),       # #00ffc4 in BGR
+        'Pedestrian': (70, 229, 0), # #00e546 in BGR
+        'Cyclist': (229, 114, 158),  # #9e72e5 in BGR
+        'Truck': (0, 211, 229)      # #e5d300 in BGR
+    }
+    
+    # Get white dot positions
+    y_dots, x_dots = white_dots_positions
+    
+    # Group nearby white dots (they belong to the same object)
+    if len(x_dots) > 0:
+        # Combine x and y coordinates
+        dot_coords = np.column_stack((x_dots, y_dots))
+        
+        # Cluster the dots
+        clustering = DBSCAN(eps=5, min_samples=1).fit(dot_coords)
+        labels_cluster = clustering.labels_
+        
+        # Process each cluster (each object)
+        unique_clusters = np.unique(labels_cluster)
+        
+        for cluster_id in unique_clusters:
+            cluster_mask = labels_cluster == cluster_id
+            cluster_points = dot_coords[cluster_mask]
+            
+            # Calculate center of the cluster
+            center_x = int(np.mean(cluster_points[:, 0]))
+            center_y = int(np.mean(cluster_points[:, 1]))
+            
+            # Find the closest label to this cluster
+            closest_label = None
+            min_dist = float('inf')
+            
+            for label in labels:
+                if label['type'] == 'DontCare':
+                    continue
+                
+                # Get dimensions
+                w = int(label['dimensions'][1] / config['DISCRETIZATION'])
+                l = int(label['dimensions'][2] / config['DISCRETIZATION'])
+                
+                # Draw a box around the center point
+                box_size = max(w, l, 10)  # Use at least 10 pixels
+                half_size = box_size // 2
+                
+                # IMPORTANT: This is where the bounding box is drawn around the label
+                # Draw the box
+                color = class_colors.get(label['type'], (255, 255, 255))
+                cv2.rectangle(labeled_image, 
+                             (center_x - half_size, center_y - half_size),
+                             (center_x + half_size, center_y + half_size),
+                             color, 2)
+                
+                # Add label text
+                cv2.putText(labeled_image, label['type'], 
+                           (center_x - half_size, center_y - half_size - 5),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                
+                # Only process one label per cluster
+                break
+    
+    return labeled_image
+
+
+def create_labeled_bev_image(points, config, labels=None):
+    """
+    Create bird's eye view image from point cloud with label boxes.
+    This is a convenience function that combines create_bev_image and draw_labels_on_bev.
+    
+    Args:
+        points: Point cloud data
+        config: Configuration dictionary
+        labels: List of label dictionaries in KITTI format
+        
+    Returns:
+        BEV image with labels drawn
+    """
+    bev_image, white_dots_positions = create_bev_image(points, config, labels)
+    if labels is not None:
+        bev_image = draw_labels_on_bev(bev_image, labels, config, white_dots_positions)
+    return bev_image
+
+
+def convert_labels_to_yolo_format(labels, config, image_width, image_height):
+    """
+    Convert KITTI format labels to YOLO format for object detection.
+    
+    YOLO format: <class_id> <x_center> <y_center> <width> <height>
+    where x, y, width, height are relative to the image size (0-1)
+    
+    Args:
+        labels: List of label dictionaries in KITTI format
+        config: Configuration dictionary
+        image_width: Width of the BEV image
+        image_height: Height of the BEV image
+        
+    Returns:
+        List of YOLO format labels: [class_id, x_center, y_center, width, height]
+    """
+    # Define class mapping (customize based on your classes)
+    class_mapping = {
+        'Car': 0,
+        'Pedestrian': 1,
+        'Cyclist': 2,
+        'Truck': 3,
+        'DontCare': -1  # Ignore DontCare
+    }
+    
+    yolo_labels = []
+    
+    for label in labels:
+        # Skip DontCare objects
+        if label['type'] == 'DontCare' or label['type'] not in class_mapping:
+            continue
+        
+        # Get class ID
+        class_id = class_mapping[label['type']]
+        
+        # Get location (x, y, z in KITTI format)
+        x = label['location'][0]  # x
+        y = label['location'][1]  # y
+        
+        # Convert to BEV pixel coordinates
+        x_bev = int(x / config['DISCRETIZATION'])
+        y_bev = int(y / config['DISCRETIZATION'] + image_width / 2)
+        
+        # Get dimensions
+        w = int(label['dimensions'][1] / config['DISCRETIZATION'])
+        l = int(label['dimensions'][2] / config['DISCRETIZATION'])
+        
+        # Use the larger dimension for the box size
+        box_size = max(w, l, 10)  # Use at least 10 pixels
+        half_size = box_size // 2
+        
+        # Calculate box coordinates
+        x_min = max(0, x_bev - half_size)
+        y_min = max(0, y_bev - half_size)
+        x_max = min(image_width - 1, x_bev + half_size)
+        y_max = min(image_height - 1, y_bev + half_size)
+        
+        # Calculate YOLO format (normalized)
+        x_center = (x_min + x_max) / 2 / image_width
+        y_center = (y_min + y_max) / 2 / image_height
+        width = (x_max - x_min) / image_width
+        height = (y_max - y_min) / image_height
+        
+        # Add to YOLO labels
+        yolo_labels.append([class_id, x_center, y_center, width, height])
+    
+    return yolo_labels
+
+
+def save_yolo_labels(yolo_labels, output_path):
+    """
+    Save YOLO format labels to a text file.
+    
+    Args:
+        yolo_labels: List of YOLO format labels [class_id, x_center, y_center, width, height]
+        output_path: Path to save the labels
+    """
+    with open(output_path, 'w') as f:
+        for label in yolo_labels:
+            f.write(f"{int(label[0])} {label[1]:.6f} {label[2]:.6f} {label[3]:.6f} {label[4]:.6f}\n")
+
+
+def calculate_anchors_kmeans(label_files, config, num_clusters=9):
+    """
+    Calculate anchors using K-means clustering on the dataset
+    
+    Args:
+        label_files: List of paths to label files
+        config: Configuration dictionary
+        num_clusters: Number of clusters (anchors)
+        
+    Returns:
+        List of anchors in (width, height) format
+    """
+    print("Calculating anchors using K-means...")
+    
+    # Collect all bounding box dimensions
+    widths = []
+    heights = []
+    
+    for label_file in label_files:
+        labels = read_label_file(label_file)
+        
+        for label in labels:
+            if label['type'] == 'DontCare':
+                continue
+            
+            # Get dimensions in BEV pixels
+            width = max(1, int(label['dimensions'][1] / config['DISCRETIZATION']))  # width = y dimension
+            length = max(1, int(label['dimensions'][0] / config['DISCRETIZATION']))  # length = x dimension
+            
+            # Use the larger dimension for both width and height (square boxes)
+            box_size = max(width, length)
+            
+            widths.append(box_size)
+            heights.append(box_size)
+    
+    # Convert to numpy arrays
+    widths = np.array(widths)
+    heights = np.array(heights)
+    
+    # Combine width and height
+    boxes = np.stack([widths, heights], axis=1)
+    
+    # Apply K-means
+    kmeans = KMeans(n_clusters=num_clusters, random_state=0).fit(boxes)
+    anchors = kmeans.cluster_centers_
+    
+    # Sort anchors by area (smallest to largest)
+    areas = anchors[:, 0] * anchors[:, 1]
+    indices = np.argsort(areas)
+    anchors = anchors[indices]
+    
+    # Round to integers
+    anchors = np.round(anchors).astype(int)
+    
+    # Ensure minimum size
+    anchors = np.maximum(anchors, 1)
+    
+    # Split into 3 groups for different scales
+    small_anchors = anchors[:3].tolist()
+    medium_anchors = anchors[3:6].tolist()
+    large_anchors = anchors[6:].tolist()
+    
+    print(f"Small anchors: {small_anchors}")
+    print(f"Medium anchors: {medium_anchors}")
+    print(f"Large anchors: {large_anchors}")
+    
+    return [small_anchors, medium_anchors, large_anchors]
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print("Usage: python pre_proccesing_functions.py <bin_file_path> <label_file_path> <config_file_path>")
+        sys.exit(1)
+    
+    bin_file_path = sys.argv[1]
+    label_file_path = sys.argv[2]
+    config_file_path = sys.argv[3]
+    
+    config = load_config(config_file_path)
+    points = read_bin_file(bin_file_path)
+    labels = read_label_file(label_file_path)
+    bev_image = create_labeled_bev_image(points, config, labels)
+    cv2.imshow("BEV Image", bev_image)
+    cv2.waitKey(0)

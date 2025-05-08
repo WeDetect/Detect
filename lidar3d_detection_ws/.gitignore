@@ -65,3 +65,7 @@ data/**
 # Ignore logs folder
 logs/
 
+# Ignore train directory and all its contents
+train/output/
+train/output/**
+

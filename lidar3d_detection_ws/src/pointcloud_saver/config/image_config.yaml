@@ -1,0 +1,15 @@
+# Image dimensions
+BEV_HEIGHT: 608
+BEV_WIDTH: 608
+
+# Point cloud boundaries (in meters)
+boundary:
+  minX: 0
+  maxX: 50
+  minY: -25
+  maxY: 25
+  minZ: -1
+  maxZ: 5
+
+# Discretization factor (meters per pixel)
+DISCRETIZATION: 0.1
