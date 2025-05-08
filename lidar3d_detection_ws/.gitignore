@@ -1,0 +1,67 @@
+# Ignore specific folders
+bags/
+build/
+data/
+install/
+log/
+.vscode/
+
+# Common Python ignores
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ROS specific ignores
+devel/
+logs/
+bin/
+msg_gen/
+srv_gen/
+build_isolated/
+devel_isolated/
+.catkin_workspace
+
+# Common editor files
+*~
+.*.swp
+.*.swo
+*.tmp
+*.bak
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Ignore bags directory and all its contents
+bags/
+bags/**
+
+# Ignore data directory and all its contents
+data/
+data/**
+
+# Ignore logs folder
+logs/
+
