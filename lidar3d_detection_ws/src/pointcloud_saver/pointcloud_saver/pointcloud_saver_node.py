@@ -111,7 +111,7 @@ class KittiPointCloudSaver(Node):
                 description=f'Minimum {axis.upper()} value for filtering points (in world frame)',
                 floating_point_range=[FloatingPointRange(
                     from_value=-50.0,
-                    to_value=0.0,
+                    to_value=50.0,
                     step=0.1
                 )]
             )
@@ -119,7 +119,7 @@ class KittiPointCloudSaver(Node):
                 description=f'Maximum {axis.upper()} value for filtering points (in world frame)',
                 floating_point_range=[FloatingPointRange(
                     from_value=0.0,
-                    to_value=50.0,
+                    to_value=100.0,
                     step=0.1
                 )]
             )

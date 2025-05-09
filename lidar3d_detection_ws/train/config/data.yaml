@@ -1,0 +1,8 @@
+names:
+- Car
+- Pedestrian
+- Cyclist
+- Truck
+nc: 4
+train: /lidar3d_detection_ws/train/images
+val: /lidar3d_detection_ws/train/images

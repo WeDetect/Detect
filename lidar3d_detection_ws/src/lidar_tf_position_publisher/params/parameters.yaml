@@ -2,7 +2,7 @@ lidar_tf_position_publisher_node:
   ros__parameters:
     global_frame: world
     lidar_frame: innoviz
-    lidar_pitch: 0.1
+    lidar_pitch: 0.2
     lidar_roll: 0.0
     lidar_yaw: -0.0
     lidar_x: -8.0

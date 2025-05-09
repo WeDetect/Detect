@@ -1,126 +1,181 @@
-#!/usr/bin/env python3
 import os
 import sys
 import argparse
 from pathlib import Path
+import cv2
+import numpy as np
+import yaml
+from ultralytics import YOLO
+from data_processing.preprocessing import (
+    load_config, read_bin_file, read_label_file,
+    create_bev_image
+)
 
-# Add parent directory to path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
 
-from models.train import train
+def convert_to_yolo_format(label, class_id, config):
+    """
+    המרה מפורמט KITTI לפורמט YOLO
+    תיקון: שינוי חישוב הגודל והמיקום של התיבות
+    """
+    x, y, z = label['location']
+    h, w, l = label['dimensions']  # גובה, רוחב, אורך במטרים
+    
+    # המרה לקואורדינטות BEV
+    x_bev = x / config['DISCRETIZATION']
+    y_bev = y / config['DISCRETIZATION'] + config['BEV_WIDTH'] / 2
+    
+    # חישוב רוחב ואורך בפיקסלים
+    width_px = w / config['DISCRETIZATION']
+    height_px = l / config['DISCRETIZATION']
+    
+    # נרמול לטווח [0,1]
+    x_center = x_bev / config['BEV_WIDTH']
+    y_center = y_bev / config['BEV_HEIGHT']
+    width = width_px / config['BEV_WIDTH']
+    height = height_px / config['BEV_HEIGHT']
+    
+    # הגבלת הערכים לטווח תקין
+    x_center = max(0, min(1, x_center))
+    y_center = max(0, min(1, y_center))
+    
+    # תיקון: הגדלת הגודל המינימלי של התיבות
+    width = max(0.01, min(1, width))     # מינימום 1% מרוחב התמונה
+    height = max(0.01, min(1, height))   # מינימום 1% מגובה התמונה
+    
+    # הדפסת דיבאג
+    print(f"Debug - Class: {class_id}, Center: ({x_center:.4f}, {y_center:.4f}), Size: ({width:.4f}, {height:.4f})")
+    
+    return [class_id, x_center, y_center, width, height]
+
+
+def save_yolo_labels(yolo_labels, label_path):
+    with open(label_path, 'w') as f:
+        for label in yolo_labels:
+            f.write(f"{int(label[0])} {label[1]:.6f} {label[2]:.6f} {label[3]:.6f} {label[4]:.6f}\n")
+
+
+def generate_dataset(bin_dir, label_dir, config_path, output_images, output_labels, img_size):
+    os.makedirs(output_images, exist_ok=True)
+    os.makedirs(output_labels, exist_ok=True)
+    config = load_config(config_path)
+    
+    # וידוא שהגדרות התמונה תואמות
+    if config['BEV_HEIGHT'] != img_size or config['BEV_WIDTH'] != img_size:
+        print(f"Warning: BEV dimensions ({config['BEV_HEIGHT']}x{config['BEV_WIDTH']}) " 
+              f"don't match img_size ({img_size}). Updating config.")
+        config['BEV_HEIGHT'] = img_size
+        config['BEV_WIDTH'] = img_size
+
+    bin_files = sorted(Path(bin_dir).glob("*.bin"))
+    for bin_file in bin_files:
+        stem = bin_file.stem
+        label_file = Path(label_dir) / f"{stem}.txt"
+
+        points = read_bin_file(bin_file)
+        labels = read_label_file(label_file)
+        bev_image, _ = create_bev_image(points, config, labels)
+
+        # בדיקת גודל התמונה
+        if bev_image.shape[0] != img_size or bev_image.shape[1] != img_size:
+            print(f"Warning: Resizing BEV image from {bev_image.shape[:2]} to {img_size}x{img_size}")
+            bev_image = cv2.resize(bev_image, (img_size, img_size))
+
+        yolo_labels = []
+        for label in labels:
+            if label['type'] == 'DontCare':
+                continue
+            elif label['type'] == 'Car':
+                class_id = 0
+            elif label['type'] == 'Pedestrian':
+                class_id = 1
+            elif label['type'] == 'Cyclist':
+                class_id = 2
+            elif label['type'] == 'Truck':
+                class_id = 3
+            else:
+                continue
+
+            yolo_label = convert_to_yolo_format(label, class_id, config)
+            yolo_labels.append(yolo_label)
+
+        out_img_path = Path(output_images) / f"{stem}.png"
+        cv2.imwrite(str(out_img_path), bev_image)
+
+        out_lbl_path = Path(output_labels) / f"{stem}.txt"
+        save_yolo_labels(yolo_labels, out_lbl_path)
+
+        print(f"Saved: {out_img_path}, {out_lbl_path}")
+
+
+def create_data_yaml(img_output, class_names, output_path="config/data.yaml"):
+    data_yaml = {
+        'train': str(Path(img_output).resolve()),
+        'val': str(Path(img_output).resolve()),
+        'nc': len(class_names),
+        'names': class_names
+    }
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as f:
+        yaml.dump(data_yaml, f)
+    print(f"Created data YAML at {output_path}")
+
+
+def setup_yolo_model(pretrained_model="yolov5s.pt", num_classes=4):
+    model = YOLO(pretrained_model)
+    model.model.model[-1].nc = num_classes
+    model.model.model[-1].detect = True
+
+    # שחרור כל השכבות לאימון
+    for name, param in model.model.named_parameters():
+        param.requires_grad = True
+
+    print(f"Model set up with {num_classes} classes")
+    return model
+
+
+def train_yolo_model(model, data_yaml_path, epochs, img_size, batch_size, output_dir):
+    model.train(
+        data=data_yaml_path,
+        epochs=epochs,
+        imgsz=img_size,
+        batch=batch_size,
+        name="bev-transfer",
+        project=output_dir,
+        device="cpu",
+        single_cls=False,
+        rect=True
+        )
+    model.save(f"{output_dir}/bev_transfer_final.pt")
+    print(f"Model saved to {output_dir}/bev_transfer_final.pt")
+
 
 def main():
-    """
-    Main entry point for training YOLO BEV model with augmentations
-    """
-    # Default paths - עדכון הנתיבים למיקומים הנכונים
-    default_data_dir = os.path.join(os.path.dirname(current_dir), "data", "innoviz")
-    default_label_dir = os.path.join(os.path.dirname(current_dir), "labels")
-    default_config_path = os.path.join(current_dir, "config", "preprocessing_config.yaml")
-    default_classes_json = os.path.join(os.path.dirname(current_dir), "labels", "_classes.json")
-    default_output_dir = os.path.join(current_dir, "output")
-    
-    # Create parser
-    parser = argparse.ArgumentParser(description="Train YOLO BEV model on LIDAR data with augmentations")
-    
-    # Add arguments with default values
-    parser.add_argument("--data_dir", type=str, default=default_data_dir, 
-                        help="Directory containing bin files")
-    parser.add_argument("--label_dir", type=str, default=default_label_dir, 
-                        help="Directory containing label files")
-    parser.add_argument("--config_path", type=str, default=default_config_path, 
-                        help="Path to config file")
-    parser.add_argument("--classes_json", type=str, default=default_classes_json, 
-                        help="Path to classes JSON file")
-    parser.add_argument("--output_dir", type=str, default=default_output_dir, 
-                        help="Directory to save models")
-    parser.add_argument("--img_size", type=int, default=608, 
-                        help="Size of input images")
-    parser.add_argument("--batch_size", type=int, default=2, 
-                        help="Batch size")
-    parser.add_argument("--epochs", type=int, default=100, 
-                        help="Number of epochs")
-    parser.add_argument("--learning_rate", type=float, default=0.001, 
-                        help="Learning rate")
-    parser.add_argument("--max_augmentations", type=int, default=50, 
-                        help="Maximum number of augmentations per sample")
-    parser.add_argument("--save_interval", type=int, default=10, 
-                        help="Save model every N epochs")
-    parser.add_argument("--num_workers", type=int, default=4, 
-                        help="Number of workers for data loading")
-    parser.add_argument("--cpu", action="store_true", 
-                        help="Force CPU training")
-    parser.add_argument("--evaluate_after_training", action="store_true", 
-                        help="Run evaluation after training")
-    
-    # Parse arguments
+    parser = argparse.ArgumentParser(description="BEV LiDAR Object Detection Pipeline")
+    parser.add_argument("--bin_dir", default="/lidar3d_detection_ws/data/innoviz", help="Path to bin files")
+    parser.add_argument("--label_dir", default="/lidar3d_detection_ws/data/labels", help="Path to label txt files")
+    parser.add_argument("--config_path", default="/lidar3d_detection_ws/train/config/preprocessing_config.yaml", help="Path to config YAML")
+    parser.add_argument("--img_output", default="/lidar3d_detection_ws/train/images", help="Output directory for BEV images")
+    parser.add_argument("--label_output", default="/lidar3d_detection_ws/train/labels", help="Output directory for YOLO labels")
+    parser.add_argument("--img_size", type=int, default=608, help="Image size for YOLOv5")
+    parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
+    parser.add_argument("--batch", type=int, default=4, help="Batch size for training")
     args = parser.parse_args()
-    
-    # Create output directory
-    os.makedirs(args.output_dir, exist_ok=True)
-    
-    # Print configuration
-    print("=== Training Configuration ===")
-    print(f"Data directory: {args.data_dir}")
-    print(f"Label directory: {args.label_dir}")
-    print(f"Config path: {args.config_path}")
-    print(f"Classes JSON: {args.classes_json}")
-    print(f"Output directory: {args.output_dir}")
-    print(f"Image size: {args.img_size}")
-    print(f"Batch size: {args.batch_size}")
-    print(f"Epochs: {args.epochs}")
-    print(f"Learning rate: {args.learning_rate}")
-    print(f"Max augmentations: {args.max_augmentations}")
-    print(f"Save interval: {args.save_interval}")
-    print(f"Number of workers: {args.num_workers}")
-    print(f"Force CPU: {args.cpu}")
-    print(f"Evaluate after training: {args.evaluate_after_training}")
-    print("============================")
-    
-    # Check if files exist
-    if not os.path.exists(args.config_path):
-        print(f"Error: Config file not found at {args.config_path}")
-        return
-    
-    if not os.path.exists(args.classes_json):
-        print(f"Error: Classes JSON file not found at {args.classes_json}")
-        return
-    
-    # Check if data directory contains bin files
-    bin_files = list(Path(args.data_dir).glob("*.bin"))
-    if len(bin_files) == 0:
-        print(f"Error: No bin files found in {args.data_dir}")
-        return
-    
-    print(f"Found {len(bin_files)} bin file(s) in {args.data_dir}")
-    
-    # Start training
-    print("Starting training...")
-    train(args)
-    print("Training completed!")
-    
-    # Run evaluation if requested
-    if args.evaluate_after_training:
-        print("Running evaluation...")
-        from models.evaluate import evaluate
-        # Create evaluation args with the same parameters
-        eval_args = argparse.Namespace(
-            data_dir=args.data_dir,
-            label_dir=args.label_dir,
-            config_path=args.config_path,
-            classes_json=args.classes_json,
-            weights=os.path.join(args.output_dir, "yolo_bev_final.pth"),
-            output_dir=os.path.join(args.output_dir, "eval"),
-            img_size=args.img_size,
-            conf_thres=0.5,
-            nms_thres=0.4,
-            display=False,
-            cpu=args.cpu
-        )
-        os.makedirs(eval_args.output_dir, exist_ok=True)
-        evaluate(eval_args)
-        print("Evaluation completed!")
+
+    print("Step 1: Generating BEV images and YOLO labels...")
+    generate_dataset(args.bin_dir, args.label_dir, args.config_path, args.img_output, args.label_output, args.img_size)
+
+    print("Step 2: Creating data YAML...")
+    class_names = ['Car', 'Pedestrian', 'Cyclist', 'Truck']
+    create_data_yaml(args.img_output, class_names)
+
+    print("Step 3: Setting up YOLO model...")
+    model = setup_yolo_model(num_classes=len(class_names))
+
+    print("Step 4: Training YOLO model...")
+    train_yolo_model(model, "config/data.yaml", args.epochs, args.img_size, args.batch, "output")
+
+    print("Pipeline completed successfully!")
+
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,7 @@
         {
             "name": "Car",
             "id": 1,
-            "color": "#00ffc4"
+            "color": "#000000"
         },
         {
             "name": "Pedestrian",

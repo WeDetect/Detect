@@ -33,8 +33,8 @@ def main():
     config = load_config(config_path)
     
     # Define the paths to the bin and label files
-    bin_file = '/lidar3d_detection_ws/data/innoviz/innoviz_00001.bin'
-    label_file = '/lidar3d_detection_ws/data/labels/innoviz_00001.txt'
+    bin_file = '/lidar3d_detection_ws/data/innoviz/innoviz_00006.bin'
+    label_file = '/lidar3d_detection_ws/data/labels/innoviz_00006.txt'
     
     # Check if the bin file is valid
     if not is_valid_lidar_bin(bin_file):

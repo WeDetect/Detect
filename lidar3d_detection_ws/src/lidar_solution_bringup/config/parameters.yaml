@@ -27,9 +27,9 @@ pointcloud_saver_node:
     label_directory: /lidar3d_detection_ws/data/labels/
     world_min_z_filter: -2.0
     world_max_z_filter: 4.5
-    world_min_y_filter: -16.0
-    world_max_y_filter: 16.0
-    world_min_x_filter: 6.0
+    world_min_y_filter: -15.0
+    world_max_y_filter: 15.0
+    world_min_x_filter: 0.0
     world_max_x_filter: 30.0
     save_intensity: true
     file_index: 0
