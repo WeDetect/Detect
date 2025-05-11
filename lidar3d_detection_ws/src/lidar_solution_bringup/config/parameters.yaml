@@ -4,12 +4,11 @@
   ros__parameters:
     global_frame: world
     lidar_frame: innoviz
-
 lidar_tf_position_publisher_node:
   ros__parameters:
     global_frame: world
     lidar_frame: innoviz
-    lidar_pitch: 0.15
+    lidar_pitch: 0.1
     lidar_roll: 0.0
     lidar_yaw: -0.0
     lidar_x: -0.0
@@ -18,18 +17,18 @@ lidar_tf_position_publisher_node:
     tf_hz: 1.0
 pointcloud_saver_node:
   ros__parameters:
-    global_frame: world
-    lidar_frame: innoviz
-    input_topic: /lidar_streamer_first_reflection
-    filtered_topic: /pointcloud_saver/filtered_points
-    trigger_topic: /pointcloud_saver/save_trigger
-    save_directory: /lidar3d_detection_ws/data/innoviz/
-    label_directory: /lidar3d_detection_ws/data/labels/
-    world_min_z_filter: -2.0
-    world_max_z_filter: 4.5
-    world_min_y_filter: -15.0
-    world_max_y_filter: 15.0
-    world_min_x_filter: 0.0
-    world_max_x_filter: 30.0
-    save_intensity: true
     file_index: 0
+    filtered_topic: /pointcloud_saver/filtered_points
+    global_frame: world
+    input_topic: /lidar_streamer_first_reflection
+    label_directory: /lidar3d_detection_ws/data/labels/
+    lidar_frame: innoviz
+    save_directory: /lidar3d_detection_ws/data/innoviz/
+    save_intensity: true
+    trigger_topic: /pointcloud_saver/save_trigger
+    world_max_x_filter: 30.0
+    world_max_y_filter: 15.0
+    world_max_z_filter: 4.5
+    world_min_x_filter: 0.0
+    world_min_y_filter: -15.0
+    world_min_z_filter: -2.0

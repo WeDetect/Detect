@@ -87,6 +87,9 @@ class KittiPointCloudSaver(Node):
         self.get_logger().info(f'\033[1;33mTrigger topic: {self.trigger_topic}\033[0m')
         self.get_logger().info(f'\033[1;33mSaving to: {self.save_directory}\033[0m')
         self.get_logger().info('=' * 30)
+        
+        # Print all parameter values
+        self.print_all_parameters()
     
     def declare_node_parameters(self):
         # Frame parameters
@@ -105,26 +108,66 @@ class KittiPointCloudSaver(Node):
         self.declare_parameter('save_directory', '/lidar3d_detection_ws/data/innoviz/', dir_desc)
         self.declare_parameter('label_directory', '/lidar3d_detection_ws/data/labels/', dir_desc)
         
-        # Filter parameters with ranges
-        for axis in ['x', 'y', 'z']:
-            min_desc = ParameterDescriptor(
-                description=f'Minimum {axis.upper()} value for filtering points (in world frame)',
-                floating_point_range=[FloatingPointRange(
-                    from_value=-50.0,
-                    to_value=50.0,
-                    step=0.1
-                )]
-            )
-            max_desc = ParameterDescriptor(
-                description=f'Maximum {axis.upper()} value for filtering points (in world frame)',
-                floating_point_range=[FloatingPointRange(
-                    from_value=0.0,
-                    to_value=100.0,
-                    step=0.1
-                )]
-            )
-            self.declare_parameter(f'world_min_{axis}_filter', -2.0, min_desc)
-            self.declare_parameter(f'world_max_{axis}_filter', 4.5, max_desc)
+        # Filter parameters with ranges - customize ranges for each axis
+        # X-axis parameters
+        min_x_desc = ParameterDescriptor(
+            description='Minimum X value for filtering points (in world frame)',
+            floating_point_range=[FloatingPointRange(
+                from_value=-50.0,
+                to_value=50.0,  # Allow any value between -50 and 50
+                step=0.1
+            )]
+        )
+        max_x_desc = ParameterDescriptor(
+            description='Maximum X value for filtering points (in world frame)',
+            floating_point_range=[FloatingPointRange(
+                from_value=-50.0,
+                to_value=100.0,  # Allow any value between -50 and 100
+                step=0.1
+            )]
+        )
+        self.declare_parameter('world_min_x_filter', 0.0, min_x_desc)
+        self.declare_parameter('world_max_x_filter', 30.0, max_x_desc)
+        
+        # Y-axis parameters
+        min_y_desc = ParameterDescriptor(
+            description='Minimum Y value for filtering points (in world frame)',
+            floating_point_range=[FloatingPointRange(
+                from_value=-50.0,
+                to_value=50.0,  # Allow any value between -50 and 50
+                step=0.1
+            )]
+        )
+        max_y_desc = ParameterDescriptor(
+            description='Maximum Y value for filtering points (in world frame)',
+            floating_point_range=[FloatingPointRange(
+                from_value=-50.0,
+                to_value=100.0,  # Allow any value between -50 and 100
+                step=0.1
+            )]
+        )
+        self.declare_parameter('world_min_y_filter', -15.0, min_y_desc)
+        self.declare_parameter('world_max_y_filter', 15.0, max_y_desc)
+        
+        # Z-axis parameters
+        min_z_desc = ParameterDescriptor(
+            description='Minimum Z value for filtering points (in world frame)',
+            floating_point_range=[FloatingPointRange(
+                from_value=-50.0,
+                to_value=50.0,  # Allow any value between -50 and 50
+                step=0.1
+            )]
+        )
+        max_z_desc = ParameterDescriptor(
+            description='Maximum Z value for filtering points (in world frame)',
+            floating_point_range=[FloatingPointRange(
+                from_value=-50.0,
+                to_value=100.0,  # Allow any value between -50 and 100
+                step=0.1
+            )]
+        )
+        self.declare_parameter('world_min_z_filter', -2.0, min_z_desc)
+        self.declare_parameter('world_max_z_filter', 4.5, max_z_desc)
         
         # Other parameters
         bool_desc = ParameterDescriptor(description='Whether to save intensity values')
@@ -365,7 +408,7 @@ class KittiPointCloudSaver(Node):
             if not changed_params:
                 return
             
-            # 1. Save to the install directory of lidar_solution_bringup package
+            # Save to the install directory of lidar_solution_bringup package
             try:
                 # Use ament_index to find the installed package path
                 bringup_package_name = "lidar_solution_bringup"
@@ -383,189 +426,103 @@ class KittiPointCloudSaver(Node):
                 # Create directory if it doesn't exist
                 os.makedirs(config_dir, exist_ok=True)
                 
-                # Check if file exists
-                if not os.path.exists(params_file_path):
-                    # Create a basic YAML file with our node's parameters
-                    with open(params_file_path, 'w') as file:
-                        file.write("/**:\n")
-                        file.write("  ros__parameters:\n")
-                        file.write("    global_frame: world\n")
-                        file.write("    lidar_frame: innoviz\n\n")
-                        file.write("pointcloud_saver_node:\n")
-                        file.write("  ros__parameters:\n")
-                        for param_name in changed_params:
-                            if param_name == 'global_frame':
-                                file.write(f"    global_frame: {self.global_frame}\n")
-                            elif param_name == 'lidar_frame':
-                                file.write(f"    lidar_frame: {self.lidar_frame}\n")
-                            elif param_name == 'input_topic':
-                                file.write(f"    input_topic: {self.input_topic}\n")
-                            elif param_name == 'filtered_topic':
-                                file.write(f"    filtered_topic: {self.filtered_topic}\n")
-                            elif param_name == 'trigger_topic':
-                                file.write(f"    trigger_topic: {self.trigger_topic}\n")
-                            elif param_name == 'save_directory':
-                                file.write(f"    save_directory: {self.save_directory}\n")
-                            elif param_name == 'label_directory':
-                                file.write(f"    label_directory: {self.label_directory}\n")
-                            elif param_name == 'world_min_z_filter':
-                                file.write(f"    world_min_z_filter: {format_double(self.world_min_z_filter)}\n")
-                            elif param_name == 'world_max_z_filter':
-                                file.write(f"    world_max_z_filter: {format_double(self.world_max_z_filter)}\n")
-                            elif param_name == 'world_min_y_filter':
-                                file.write(f"    world_min_y_filter: {format_double(self.world_min_y_filter)}\n")
-                            elif param_name == 'world_max_y_filter':
-                                file.write(f"    world_max_y_filter: {format_double(self.world_max_y_filter)}\n")
-                            elif param_name == 'world_min_x_filter':
-                                file.write(f"    world_min_x_filter: {format_double(self.world_min_x_filter)}\n")
-                            elif param_name == 'world_max_x_filter':
-                                file.write(f"    world_max_x_filter: {format_double(self.world_max_x_filter)}\n")
-                            elif param_name == 'save_intensity':
-                                file.write(f"    save_intensity: {str(self.save_intensity).lower()}\n")
-                            elif param_name == 'file_prefix':
-                                # Handle empty string properly with quotes
-                                prefix = '""' if self.file_prefix == "" else self.file_prefix
-                                file.write(f"    file_prefix: {prefix}\n")
-                            elif param_name == 'file_index':
-                                file.write(f"    file_index: {self.file_index}\n")
+                # Always update the file, whether it exists or not
+                # First, read the existing file if it exists
+                existing_content = {}
+                if os.path.exists(params_file_path):
+                    with open(params_file_path, 'r') as file:
+                        try:
+                            import yaml
+                            existing_content = yaml.safe_load(file) or {}
+                        except Exception as e:
+                            self.get_logger().error(f'Error parsing existing YAML: {e}')
+                            existing_content = {}
                 
-                    self.get_logger().info(f'\033[1;33mCreated new parameters file: {params_file_path}\033[0m')
-                    return
+                # Ensure the structure exists
+                if '/**' not in existing_content:
+                    existing_content['/**'] = {'ros__parameters': {}}
                 
-                # Read the file line by line
-                with open(params_file_path, 'r') as file:
-                    lines = file.readlines()
+                if 'pointcloud_saver_node' not in existing_content:
+                    existing_content['pointcloud_saver_node'] = {'ros__parameters': {}}
                 
-                # Process the file line by line
-                new_lines = []
-                in_pointcloud_saver_section = False
-                in_ros_parameters_section = False
-                pointcloud_saver_section_found = False
-                
-                for i, line in enumerate(lines):
-                    # Check if we're entering the pointcloud_saver_node section
-                    if line.strip() == "pointcloud_saver_node:" or line.strip().startswith("pointcloud_saver_node:"):
-                        in_pointcloud_saver_section = True
-                        pointcloud_saver_section_found = True
-                        new_lines.append(line)
-                        continue
+                # Update the parameters
+                for param_name in changed_params:
+                    if param_name in ['global_frame', 'lidar_frame']:
+                        existing_content['/**']['ros__parameters'][param_name] = getattr(self, param_name)
                     
-                    # Check if we're entering the ros__parameters section within pointcloud_saver
-                    if in_pointcloud_saver_section and (line.strip() == "ros__parameters:" or 
-                                                       line.strip().startswith("ros__parameters:")):
-                        in_ros_parameters_section = True
-                        new_lines.append(line)
-                        continue
-                    
-                    # If we're in the ros__parameters section, check if this line is a parameter we need to update
-                    if in_pointcloud_saver_section and in_ros_parameters_section:
-                        param_line = line.lstrip()
-                        if ':' in param_line:
-                            param_name = param_line.split(':')[0].strip()
-                            
-                            # If this parameter needs to be updated
-                            if param_name in changed_params:
-                                # Replace with updated value
-                                indent = len(line) - len(line.lstrip())
-                                spaces = ' ' * indent
-                                
-                                if param_name == 'global_frame':
-                                    new_lines.append(f"{spaces}global_frame: {self.global_frame}\n")
-                                elif param_name == 'lidar_frame':
-                                    new_lines.append(f"{spaces}lidar_frame: {self.lidar_frame}\n")
-                                elif param_name == 'input_topic':
-                                    new_lines.append(f"{spaces}input_topic: {self.input_topic}\n")
-                                elif param_name == 'filtered_topic':
-                                    new_lines.append(f"{spaces}filtered_topic: {self.filtered_topic}\n")
-                                elif param_name == 'trigger_topic':
-                                    new_lines.append(f"{spaces}trigger_topic: {self.trigger_topic}\n")
-                                elif param_name == 'save_directory':
-                                    new_lines.append(f"{spaces}save_directory: {self.save_directory}\n")
-                                elif param_name == 'label_directory':
-                                    new_lines.append(f"{spaces}label_directory: {self.label_directory}\n")
-                                elif param_name == 'world_min_z_filter':
-                                    new_lines.append(f"{spaces}world_min_z_filter: {format_double(self.world_min_z_filter)}\n")
-                                elif param_name == 'world_max_z_filter':
-                                    new_lines.append(f"{spaces}world_max_z_filter: {format_double(self.world_max_z_filter)}\n")
-                                elif param_name == 'world_min_y_filter':
-                                    new_lines.append(f"{spaces}world_min_y_filter: {format_double(self.world_min_y_filter)}\n")
-                                elif param_name == 'world_max_y_filter':
-                                    new_lines.append(f"{spaces}world_max_y_filter: {format_double(self.world_max_y_filter)}\n")
-                                elif param_name == 'world_min_x_filter':
-                                    new_lines.append(f"{spaces}world_min_x_filter: {format_double(self.world_min_x_filter)}\n")
-                                elif param_name == 'world_max_x_filter':
-                                    new_lines.append(f"{spaces}world_max_x_filter: {format_double(self.world_max_x_filter)}\n")
-                                elif param_name == 'save_intensity':
-                                    new_lines.append(f"{spaces}save_intensity: {str(self.save_intensity).lower()}\n")
-                                elif param_name == 'file_prefix':
-                                    # Handle empty string properly with quotes
-                                    prefix = '""' if self.file_prefix == "" else self.file_prefix
-                                    new_lines.append(f"{spaces}file_prefix: {prefix}\n")
-                                elif param_name == 'file_index':
-                                    new_lines.append(f"{spaces}file_index: {self.file_index}\n")
-                                
-                                # Mark this parameter as processed
-                                changed_params.remove(param_name)
-                                continue
-                        
-                    # Check if we're exiting the pointcloud_saver section
-                    if in_pointcloud_saver_section and line.strip() and not line.startswith(" "):
-                        in_pointcloud_saver_section = False
-                        in_ros_parameters_section = False
-                        
-                        # If there are still parameters to add, add them before exiting the section
-                        if changed_params and pointcloud_saver_section_found:
-                            spaces = "    "  # Standard indentation
-                            for param_name in list(changed_params):  # Use list to avoid modifying during iteration
-                                if param_name == 'global_frame':
-                                    new_lines.append(f"{spaces}global_frame: {self.global_frame}\n")
-                                elif param_name == 'lidar_frame':
-                                    new_lines.append(f"{spaces}lidar_frame: {self.lidar_frame}\n")
-                                # ... (repeat for all parameters)
-                                elif param_name == 'file_prefix':
-                                    # Handle empty string properly with quotes
-                                    prefix = '""' if self.file_prefix == "" else self.file_prefix
-                                    new_lines.append(f"{spaces}file_prefix: {prefix}\n")
-                                elif param_name == 'file_index':
-                                    new_lines.append(f"{spaces}file_index: {self.file_index}\n")
-                                
-                                changed_params.remove(param_name)
-                    
-                    # Add the line to the output
-                    new_lines.append(line)
-                
-                # If we didn't find the pointcloud_saver section, add it at the end
-                if not pointcloud_saver_section_found:
-                    new_lines.append("\npointcloud_saver_node:\n")
-                    new_lines.append("  ros__parameters:\n")
-                    for param_name in changed_params:
-                        if param_name == 'global_frame':
-                            new_lines.append(f"    global_frame: {self.global_frame}\n")
-                        elif param_name == 'lidar_frame':
-                            new_lines.append(f"    lidar_frame: {self.lidar_frame}\n")
-                        # ... (repeat for all parameters)
-                        elif param_name == 'file_prefix':
-                            # Handle empty string properly with quotes
-                            prefix = '""' if self.file_prefix == "" else self.file_prefix
-                            new_lines.append(f"    file_prefix: {prefix}\n")
-                        elif param_name == 'file_index':
-                            new_lines.append(f"    file_index: {self.file_index}\n")
+                    # Always update in the node-specific section
+                    if param_name == 'global_frame':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['global_frame'] = self.global_frame
+                    elif param_name == 'lidar_frame':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['lidar_frame'] = self.lidar_frame
+                    elif param_name == 'input_topic':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['input_topic'] = self.input_topic
+                    elif param_name == 'filtered_topic':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['filtered_topic'] = self.filtered_topic
+                    elif param_name == 'trigger_topic':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['trigger_topic'] = self.trigger_topic
+                    elif param_name == 'save_directory':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['save_directory'] = self.save_directory
+                    elif param_name == 'label_directory':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['label_directory'] = self.label_directory
+                    elif param_name == 'world_min_z_filter':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['world_min_z_filter'] = float(format_double(self.world_min_z_filter))
+                    elif param_name == 'world_max_z_filter':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['world_max_z_filter'] = float(format_double(self.world_max_z_filter))
+                    elif param_name == 'world_min_y_filter':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['world_min_y_filter'] = float(format_double(self.world_min_y_filter))
+                    elif param_name == 'world_max_y_filter':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['world_max_y_filter'] = float(format_double(self.world_max_y_filter))
+                    elif param_name == 'world_min_x_filter':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['world_min_x_filter'] = float(format_double(self.world_min_x_filter))
+                    elif param_name == 'world_max_x_filter':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['world_max_x_filter'] = float(format_double(self.world_max_x_filter))
+                    elif param_name == 'save_intensity':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['save_intensity'] = self.save_intensity
+                    elif param_name == 'file_prefix':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['file_prefix'] = self.file_prefix
+                    elif param_name == 'file_index':
+                        existing_content['pointcloud_saver_node']['ros__parameters']['file_index'] = self.file_index
                 
                 # Write the updated content back to the file
                 with open(params_file_path, 'w') as file:
-                    file.writelines(new_lines)
+                    # Add a comment at the top of the file
+                    file.write("#!check\n\n")
+                    import yaml
+                    yaml.dump(existing_content, file, default_flow_style=False)
                 
-                self.get_logger().info(f'\033[1;33mParameters saved to bringup package: {params_file_path}\033[0m')
+                self.get_logger().info(f'\033[1;33mParameters saved to: {params_file_path}\033[0m')
                 
             except Exception as e:
-                self.get_logger().error(f'Error saving parameters to bringup package: {e}')
+                self.get_logger().error(f'Error saving parameters to file: {e}')
         
         except Exception as e:
-            self.get_logger().error(f'Error saving parameters: {e}')
+            self.get_logger().error(f'Error in save_parameters_to_yaml: {e}')
     
     def shutdown_callback(self):
         self.get_logger().info('\033[1;33mShutting down, saving parameters...\033[0m')
         self.save_parameters_to_yaml()
+    
+    def print_all_parameters(self):
+        """Print all current parameter values"""
+        self.get_logger().info('\033[1;36m=== ALL PARAMETERS ===\033[0m')
+        self.get_logger().info(f'\033[1;36mglobal_frame: {self.global_frame}\033[0m')
+        self.get_logger().info(f'\033[1;36mlidar_frame: {self.lidar_frame}\033[0m')
+        self.get_logger().info(f'\033[1;36minput_topic: {self.input_topic}\033[0m')
+        self.get_logger().info(f'\033[1;36mfiltered_topic: {self.filtered_topic}\033[0m')
+        self.get_logger().info(f'\033[1;36mtrigger_topic: {self.trigger_topic}\033[0m')
+        self.get_logger().info(f'\033[1;36msave_directory: {self.save_directory}\033[0m')
+        self.get_logger().info(f'\033[1;36mlabel_directory: {self.label_directory}\033[0m')
+        self.get_logger().info(f'\033[1;36mworld_min_z_filter: {self.world_min_z_filter}\033[0m')
+        self.get_logger().info(f'\033[1;36mworld_max_z_filter: {self.world_max_z_filter}\033[0m')
+        self.get_logger().info(f'\033[1;36mworld_min_y_filter: {self.world_min_y_filter}\033[0m')
+        self.get_logger().info(f'\033[1;36mworld_max_y_filter: {self.world_max_y_filter}\033[0m')
+        self.get_logger().info(f'\033[1;36mworld_min_x_filter: {self.world_min_x_filter}\033[0m')
+        self.get_logger().info(f'\033[1;36mworld_max_x_filter: {self.world_max_x_filter}\033[0m')
+        self.get_logger().info(f'\033[1;36msave_intensity: {self.save_intensity}\033[0m')
+        self.get_logger().info(f'\033[1;36mfile_prefix: {self.file_prefix}\033[0m')
+        self.get_logger().info(f'\033[1;36mfile_index: {self.file_index}\033[0m')
+        self.get_logger().info('\033[1;36m=====================\033[0m')
 
 
 def main(args=None):
