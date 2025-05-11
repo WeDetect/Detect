@@ -301,87 +301,48 @@ def save_label_file(labels, output_path):
             )
             f.write(line + '\n')
 
-def apply_augmentation(bin_file, label_file, config_file, output_dir, 
-                       rotation=0, distance_scale=0, lateral_shift=0, vertical_shift=0,
-                       visualize=False):
+def filter_points_by_range(points, labels, x_min, x_max, y_min, y_max):
     """
-    Apply augmentation to a point cloud and its labels
+    Filter points to keep only those within the specified X and Y range
     
     Args:
-        bin_file: Path to input bin file
-        label_file: Path to input label file
-        config_file: Path to config file
-        output_dir: Directory to save augmented files
-        rotation: Rotation angle in degrees (0-360)
-        distance_scale: Amount to scale distance (meters)
-        lateral_shift: Amount to shift laterally (meters)
-        vertical_shift: Amount to shift vertically (meters)
-        visualize: Whether to visualize the result
+        points: Nx4 point cloud array (x, y, z, intensity)
+        labels: List of label dictionaries
+        x_min, x_max: X-axis range boundaries (forward direction)
+        y_min, y_max: Y-axis range boundaries (lateral direction)
     
     Returns:
-        output_bin_path: Path to augmented bin file
-        output_label_path: Path to augmented label file
+        filtered_points: Filtered point cloud
+        filtered_labels: Updated labels that fall within the range
     """
-    # Load data
-    points = read_bin_file(bin_file)
-    labels = read_label_file(label_file)
-    config = load_config(config_file)
+    # Copy points to avoid modifying the original
+    filtered_points = np.copy(points)
     
-    # Create output directory if it doesn't exist
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Create a mask for points that fall within the specified range
+    mask = (filtered_points[:, 0] >= x_min) & (filtered_points[:, 0] <= x_max) & \
+           (filtered_points[:, 1] >= y_min) & (filtered_points[:, 1] <= y_max)
     
-    # Generate output filenames
-    bin_filename = Path(bin_file).name
-    label_filename = Path(label_file).name
+    # Apply the mask to filter points
+    filtered_points = filtered_points[mask]
     
-    # Add augmentation info to filename
-    augmentation_info = f"_r{rotation}_d{distance_scale}_l{lateral_shift}_v{vertical_shift}"
-    output_bin_path = output_dir / f"{Path(bin_filename).stem}{augmentation_info}.bin"
-    output_label_path = output_dir / f"{Path(label_filename).stem}{augmentation_info}.txt"
-    
-    # Apply augmentations in sequence
-    augmented_points = points
-    augmented_labels = labels
-    
-    if rotation != 0:
-        augmented_points, augmented_labels = rotate_points_and_labels(
-            augmented_points, augmented_labels, rotation)
-    
-    if distance_scale != 0:
-        augmented_points, augmented_labels = scale_distance_points_and_labels(
-            augmented_points, augmented_labels, distance_scale)
-    
-    if lateral_shift != 0:
-        augmented_points, augmented_labels = shift_lateral_points_and_labels(
-            augmented_points, augmented_labels, lateral_shift)
-    
-    if vertical_shift != 0:
-        augmented_points, augmented_labels = shift_vertical_points_and_labels(
-            augmented_points, augmented_labels, vertical_shift)
-    
-    # Save augmented data
-    #save_bin_file(augmented_points, output_bin_path)
-    #save_label_file(augmented_labels, output_label_path)
-    
-    # Visualize if requested
-    if visualize:
-        original_bev = create_bev_image(points, config, labels)
-        augmented_bev = create_bev_image(augmented_points, config, augmented_labels)
+    # Update labels
+    if labels is None:
+        return filtered_points, None
         
-        # Combine images side by side
-        combined_img = np.hstack((original_bev, augmented_bev))
+    filtered_labels = []
+    for label in labels:
+        new_label = label.copy()
         
-        # Add labels
-        cv2.putText(combined_img, "Original", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(combined_img, f"Augmented (r:{rotation}, d:{distance_scale}, l:{lateral_shift}, v:{vertical_shift})", 
-                   (original_bev.shape[1] + 10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        # Skip DontCare objects
+        if new_label['type'] == 'DontCare':
+            filtered_labels.append(new_label)
+            continue
         
-        cv2.imshow("Augmentation Comparison", combined_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        # Get label location
+        x, y, z = new_label['location']
+        
+        # Check if the center of the label is within the range
+        if x_min <= x <= x_max and y_min <= y <= y_max:
+            filtered_labels.append(new_label)
     
-    return str(output_bin_path), str(output_label_path)
-
+    return filtered_points, filtered_labels

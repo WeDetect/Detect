@@ -71,7 +71,7 @@ void LidarTFPublisher::declare_dynamic_parameters() {
     rcl_interfaces::msg::FloatingPointRange pos_x_range;
     pos_x_range.from_value = -100.0;
     pos_x_range.to_value = 100.0;
-    pos_x_range.step = 0.1;
+    pos_x_range.step = 0.001;
     pos_x_desc.floating_point_range.push_back(pos_x_range);
     
     rcl_interfaces::msg::ParameterDescriptor pos_y_desc;
@@ -79,7 +79,7 @@ void LidarTFPublisher::declare_dynamic_parameters() {
     rcl_interfaces::msg::FloatingPointRange pos_y_range;
     pos_y_range.from_value = -100.0;
     pos_y_range.to_value = 100.0;
-    pos_y_range.step = 0.1;
+    pos_y_range.step = 0.001;
     pos_y_desc.floating_point_range.push_back(pos_y_range);
     
     rcl_interfaces::msg::ParameterDescriptor pos_z_desc;
@@ -87,7 +87,7 @@ void LidarTFPublisher::declare_dynamic_parameters() {
     rcl_interfaces::msg::FloatingPointRange pos_z_range;
     pos_z_range.from_value = -50.0;
     pos_z_range.to_value = 50.0;
-    pos_z_range.step = 0.1;
+    pos_z_range.step = 0.001;
     pos_z_desc.floating_point_range.push_back(pos_z_range);
     
     // Rotation parameters with sliders (in radians)

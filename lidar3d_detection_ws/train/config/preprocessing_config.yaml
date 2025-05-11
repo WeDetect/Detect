@@ -11,9 +11,17 @@ boundary:
   minZ: -1
   maxZ: 5
 
-DISCRETIZATION: 0.1
+DISCRETIZATION: 0.05
+Z_RESOLUTION: 0.2
 
 perspective_width: 800
 perspective_height: 600
 fov_horizontal: 90
 fov_vertical: 60
+
+# צבעים בפורמט BGR
+colors:
+  Car: [0, 0, 255]      # אדום
+  Pedestrian: [0, 255, 0]  # ירוק
+  Cyclist: [255, 0, 0]   # כחול
+  Truck: [255, 255, 0]   # טורקיז

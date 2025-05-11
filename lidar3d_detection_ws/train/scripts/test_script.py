@@ -4,149 +4,769 @@ import numpy as np
 import cv2
 from pathlib import Path
 import time
+import glob
+import yaml
 
+# Add parent directory to path for importing modules
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-from data_processing.preprocessing import read_bin_file, read_label_file, create_bev_image, draw_labels_on_bev, create_labeled_bev_image, load_config
-from data_processing.augmentation import rotate_points_and_labels, scale_distance_points_and_labels, shift_lateral_points_and_labels, shift_vertical_points_and_labels, create_custom_bev_image
+# Import the PointCloudProcessor from our preprocessing file
+from data_processing.preproccesing_0 import PointCloudProcessor
+from data_processing.augmentation import (rotate_points_and_labels, 
+                                         scale_distance_points_and_labels,
+                                         shift_lateral_points_and_labels,
+                                         shift_vertical_points_and_labels,
+                                         filter_points_by_range,
+                                         save_label_file)
+from data_processing.preprocessing import read_bin_file, read_label_file, load_config
 
-def is_valid_lidar_bin(file_path):
-    """Check if a file is a valid LiDAR point cloud bin file"""
-    try:
-        # Try to load the file as a point cloud
-        points = np.fromfile(file_path, dtype=np.float32)
-        # Check if the size is divisible by 4 (x, y, z, intensity)
-        if len(points) % 4 != 0:
-            return False
-        # Reshape and check if it looks like a point cloud (has reasonable number of points)
-        points = points.reshape(-1, 4)
-        return len(points) > 100  # Assume a valid point cloud has at least 100 points
-    except Exception:
-        return False
+def create_processor():
+    """Create and configure a PointCloudProcessor instance"""
+    config_path = "/lidar3d_detection_ws/train/config/preprocessing_config.yaml"
+    data_config_path = "/lidar3d_detection_ws/train/config/data.yaml"
+    processor = PointCloudProcessor(config_path, data_config_path)
+    return processor
 
-def main():
-    # Load configuration
-    config_path = os.path.join(parent_dir, 'config', 'preprocessing_config.yaml')
-    print(f"Loading config from: {config_path}")
-    config = load_config(config_path)
+def visualize_dataset():
+    """Visualize all bin files in the dataset with their corresponding labels"""
+    # Define paths to data directories
+    data_dir = '/lidar3d_detection_ws/data/innoviz/'
+    labels_dir = '/lidar3d_detection_ws/data/labels/'
     
+    # Create a processor instance
+    processor = create_processor()
+    
+    # Get all bin files
+    bin_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.bin')])
+    
+    if not bin_files:
+        print("No bin files found in directory")
+        return
+        
+    print(f"Found {len(bin_files)} bin files")
+    
+    # Create window for visualization
+    window_name = "BEV Visualization"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 800, 800)
+    
+    # Visualize each bin file
+    for bin_file in bin_files:
+        base_name = os.path.basename(bin_file)
+        print(f"Processing: {base_name}")
+        
+        # Define the corresponding label file
+        label_base = os.path.splitext(base_name)[0] + '.txt'
+        label_file = os.path.join(labels_dir, label_base)
+        
+        if not os.path.exists(label_file):
+            print(f"No label file found for {base_name}")
+            continue
+            
+        print(f"Using label file: {label_file}")
+        
+        # Process the point cloud and create BEV image with labels
+        bev_image, _ = processor.process_point_cloud(bin_file, label_file)
+        
+        # Add file name to the image
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(bev_image, f"File: {base_name}", (10, bev_image.shape[0] - 20), 
+                   font, 0.8, (255, 255, 255), 2)
+        
+        # Display the image
+        cv2.imshow(window_name, bev_image)
+        
+        # Wait for 3 seconds or until a key is pressed
+        key = cv2.waitKey(3000)
+        if key == 27:  # ESC key
+            break
+    
+    cv2.destroyAllWindows()
+
+def visualize_specific_file():
+    """Visualize a specific bin file with its labels"""
     # Define the paths to the bin and label files
-    bin_file = '/lidar3d_detection_ws/data/innoviz/innoviz_00006.bin'
-    label_file = '/lidar3d_detection_ws/data/labels/innoviz_00006.txt'
+    bin_file = '/lidar3d_detection_ws/data/innoviz/innoviz_00010.bin'
+    label_file = '/lidar3d_detection_ws/data/labels/innoviz_00010.txt'
     
-    # Check if the bin file is valid
-    if not is_valid_lidar_bin(bin_file):
-        print("Error: No valid LiDAR .bin files found in the specified path")
+    # Check if the bin file exists
+    if not os.path.exists(bin_file):
+        print(f"Error: File not found: {bin_file}")
         return
     
     print(f"Using point cloud file: {bin_file}")
     
-    # Load point cloud
-    print("Loading point cloud...")
-    original_points = read_bin_file(bin_file)
-    print(f"Loaded {len(original_points)} points")
+    # Check if the label file exists
+    if not os.path.exists(label_file):
+        print(f"Error: Label file not found: {label_file}")
+        return
     
-    # Try to load the label file
-    original_labels = None
-    if os.path.exists(label_file):
-        print(f"Found label file: {label_file}")
-        original_labels = read_label_file(label_file)
-        print(f"Loaded {len(original_labels)} labels")
-    else:
-        print("No label file found. Rotation will be shown without labels.")
+    print(f"Using label file: {label_file}")
     
-    # Create original BEV image without labels
-    original_bev_no_labels, white_dots_positions = create_bev_image(original_points, config, original_labels)
+    # Create a processor instance
+    processor = create_processor()
     
-    # Create original BEV image with labels
-    original_bev_with_labels = draw_labels_on_bev(original_bev_no_labels.copy(), original_labels, config, white_dots_positions)
+    # Process the point cloud and get the BEV image with labels
+    print("Processing point cloud and generating BEV image...")
+    bev_image, yolo_labels = processor.process_point_cloud(bin_file, label_file)
     
-    # Display both versions side by side
-    combined_img = np.hstack((original_bev_no_labels, original_bev_with_labels))
+    print(f"Generated {len(yolo_labels)} YOLO labels")
+    for label in yolo_labels:
+        print(f"  {label}")
     
-    # Add title and labels
+    # Create window
+    window_name = "BEV Visualization"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 800, 800)
+    
+    # Display file name on the image
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(combined_img, "BEV without labels", (10, 30), font, 1, (255, 255, 255), 2)
-    cv2.putText(combined_img, "BEV with labels", (original_bev_no_labels.shape[1] + 10, 30), font, 1, (255, 255, 255), 2)
+    cv2.putText(bev_image, f"File: {os.path.basename(bin_file)}", 
+               (10, bev_image.shape[0] - 20), font, 0.8, (255, 255, 255), 2)
     
-    # Create window
-    window_name = "BEV Comparison - Without vs With Labels"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 1200, 600)
-    
-    # Display the combined image
-    cv2.imshow(window_name, combined_img)
-    cv2.waitKey(0)  # Wait until a key is pressed
-    
-    # Rotate and display for each angle from -30 to +30 degrees
-    for angle in range(-30, 35, 5):
-        print(f"Rotating by {angle} degrees...")
-        rotated_points, rotated_labels = rotate_points_and_labels(original_points, original_labels or [], angle)
-        
-        # Create BEV image for rotated points (without labels)
-        rotated_bev_no_labels, rotated_white_dots = create_bev_image(rotated_points, config, rotated_labels)
-        
-        # Create BEV image for rotated points (with labels)
-        rotated_bev_with_labels = draw_labels_on_bev(rotated_bev_no_labels.copy(), rotated_labels, config, rotated_white_dots)
-        
-        # Combine original and rotated images side by side (both with labels)
-        combined_img = np.hstack((original_bev_with_labels, rotated_bev_with_labels))
-        
-        # Add title and labels
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(combined_img, "Original (0°)", (10, 30), font, 1, (255, 255, 255), 2)
-        cv2.putText(combined_img, f"Rotated {angle}°", (original_bev_with_labels.shape[1] + 10, 30), font, 1, (255, 255, 255), 2)
-        
-        # Create window
-        window_name = f"BEV Comparison - Original vs {angle}° Rotation"
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 1200, 600)
-        
-        # Display the combined image
-        cv2.imshow(window_name, combined_img)
-        
-        # Wait for 3 seconds before moving to the next angle
-        cv2.waitKey(3000)
-        
-    # Rest of the code remains similar, just update to use the new functions
-    # For brevity, I'll update just one more example:
-    
-    # Example of using create_custom_bev_image
-    min_x, max_x = 0, 30
-    min_y, max_y = -30, 30
-    min_z, max_z = -2, 6
-    print(f"Creating custom BEV image with boundaries X:({min_x},{max_x}), Y:({min_y},{max_y}), Z:({min_z},{max_z})")
-    
-    # Create custom BEV without labels
-    custom_config = config.copy()
-    custom_config['boundary'] = {
-        'minX': min_x, 'maxX': max_x,
-        'minY': min_y, 'maxY': max_y,
-        'minZ': min_z, 'maxZ': max_z
-    }
-    custom_bev_no_labels, custom_white_dots = create_bev_image(original_points, custom_config, original_labels)
-    
-    # Create custom BEV with labels
-    custom_bev_with_labels = draw_labels_on_bev(custom_bev_no_labels.copy(), original_labels, custom_config, custom_white_dots)
-    
-    # Display both versions side by side
-    combined_img = np.hstack((custom_bev_no_labels, custom_bev_with_labels))
-    
-    # Add title and labels
-    cv2.putText(combined_img, "Custom BEV without labels", (10, 30), font, 1, (255, 255, 255), 2)
-    cv2.putText(combined_img, "Custom BEV with labels", (custom_bev_no_labels.shape[1] + 10, 30), font, 1, (255, 255, 255), 2)
-    
-    # Create window
-    window_name = "Custom BEV Comparison"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 1200, 600)
-    
-    # Display the combined image
-    cv2.imshow(window_name, combined_img)
+    # Display the image
+    cv2.imshow(window_name, bev_image)
     cv2.waitKey(0)  # Wait until a key is pressed
     cv2.destroyAllWindows()
+
+def visualize_with_controls():
+    """Visualize a specific file with interactive controls for adjusting visualization params"""
+    # Define the paths to the bin and label files
+    bin_file = '/lidar3d_detection_ws/data/innoviz/innoviz_00010.bin'
+    label_file = '/lidar3d_detection_ws/data/labels/innoviz_00010.txt'
+    config_path = "/lidar3d_detection_ws/train/config/preprocessing_config.yaml"
+    data_config_path = "/lidar3d_detection_ws/train/config/data.yaml"
+    
+    # Check if files exist
+    if not os.path.exists(bin_file) or not os.path.exists(label_file):
+        print(f"Error: Files not found")
+        return
+    
+    print(f"Using point cloud file: {bin_file}")
+    print(f"Using label file: {label_file}")
+    
+    # Load initial config
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Initial parameters from config
+    resolution = float(config['DISCRETIZATION'])
+    z_resolution = float(config['Z_RESOLUTION'])
+    boundary = config['boundary']
+    minX = float(boundary['minX'])
+    maxX = float(boundary['maxX'])
+    minY = float(boundary['minY'])
+    maxY = float(boundary['maxY'])
+    minZ = float(boundary['minZ'])
+    maxZ = float(boundary['maxZ'])
+    
+    side_range = (minY, maxY)
+    fwd_range = (minX, maxX)
+    height_range = (minZ, maxZ)
+    
+    def update_view():
+        """Update the BEV visualization with current parameters"""
+        # Create temporary config for this view
+        temp_config = config.copy()
+        temp_config['DISCRETIZATION'] = resolution
+        temp_config['Z_RESOLUTION'] = z_resolution
+        temp_config['boundary']['minX'] = fwd_range[0]
+        temp_config['boundary']['maxX'] = fwd_range[1]
+        temp_config['boundary']['minY'] = side_range[0]
+        temp_config['boundary']['maxY'] = side_range[1]
+        temp_config['boundary']['minZ'] = height_range[0]
+        temp_config['boundary']['maxZ'] = height_range[1]
+        
+        # Create a temporary config file
+        temp_config_path = "/tmp/temp_preprocessing_config.yaml"
+        with open(temp_config_path, 'w') as f:
+            yaml.dump(temp_config, f)
+        
+        # Create processor with the temporary config
+        processor = PointCloudProcessor(temp_config_path, data_config_path)
+        
+        # Process the point cloud and get the BEV image with labels
+        bev_image, _ = processor.process_point_cloud(bin_file, label_file)
+        
+        # Add parameter info to the image
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        info_text = [
+            f"Resolution: {resolution:.2f} m/pixel",
+            f"Side range: {side_range[0]:.1f} to {side_range[1]:.1f} m",
+            f"Forward range: {fwd_range[0]:.1f} to {fwd_range[1]:.1f} m",
+            f"Height range: {height_range[0]:.1f} to {height_range[1]:.1f} m",
+            f"Z resolution: {z_resolution:.2f} m"
+        ]
+        
+        for i, text in enumerate(info_text):
+            cv2.putText(bev_image, text, (10, 30 + i*30), font, 0.6, (255, 255, 255), 1)
+        
+        cv2.imshow(window_name, bev_image)
+        
+        # Remove the temporary file
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+    
+    # Create window
+    window_name = "BEV Visualization (Press ESC to exit)"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 608, 608)
+    
+    # Initial update
+    update_view()
+    
+    print("\nControls:")
+    print("  W/S - Increase/decrease resolution")
+    print("  A/D - Increase/decrease side range")
+    print("  Q/E - Increase/decrease forward range")
+    print("  Z/X - Increase/decrease height range")
+    print("  R/F - Increase/decrease Z resolution")
+    print("  ESC - Exit")
+    
+    # Control loop
+    while True:
+        key = cv2.waitKey(0)
+        
+        # ESC to exit
+        if key == 27:
+            break
+        
+        # Resolution controls
+        elif key == ord('w'):
+            resolution = max(0.05, resolution - 0.05)
+        elif key == ord('s'):
+            resolution = min(0.5, resolution + 0.05)
+        
+        # Side range controls
+        elif key == ord('a'):
+            side_width = side_range[1] - side_range[0]
+            side_range = (side_range[0] - 5, side_range[1] + 5)
+        elif key == ord('d'):
+            if side_range[1] - side_range[0] > 20:
+                side_range = (side_range[0] + 5, side_range[1] - 5)
+        
+        # Forward range controls
+        elif key == ord('q'):
+            fwd_range = (fwd_range[0], fwd_range[1] + 10)
+        elif key == ord('e'):
+            if fwd_range[1] - fwd_range[0] > 20:
+                fwd_range = (fwd_range[0], fwd_range[1] - 10)
+        
+        # Height range controls
+        elif key == ord('z'):
+            height_range = (height_range[0] - 0.5, height_range[1] + 0.5)
+        elif key == ord('x'):
+            if height_range[1] - height_range[0] > 1:
+                height_range = (height_range[0] + 0.5, height_range[1] - 0.5)
+        
+        # Z resolution controls
+        elif key == ord('r'):
+            z_resolution = max(0.1, z_resolution - 0.1)
+        elif key == ord('f'):
+            z_resolution = min(1.0, z_resolution + 0.1)
+        
+        # Update view with new parameters
+        update_view()
+    
+    cv2.destroyAllWindows()
+
+def visualize_augmentations():
+    """Visualize various augmentations on the first point cloud file in the dataset"""
+    print("Visualizing different augmentations on the first bin file")
+    
+    # Define the paths to the bin and label files (first file in dataset)
+    data_dir = '/lidar3d_detection_ws/data/innoviz/'
+    labels_dir = '/lidar3d_detection_ws/data/labels/'
+    
+    # Get the first bin file
+    bin_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.bin')])
+    if not bin_files:
+        print("No bin files found in directory")
+        return
+    
+    bin_file = bin_files[0]
+    base_name = os.path.basename(bin_file)
+    print(f"Using point cloud file: {base_name}")
+    
+    # Define the corresponding label file
+    label_base = os.path.splitext(base_name)[0] + '.txt'
+    label_file = os.path.join(labels_dir, label_base)
+    
+    if not os.path.exists(label_file):
+        print(f"No label file found for {base_name}")
+        return
+    
+    print(f"Using label file: {label_file}")
+    
+    # Create processor
+    processor = create_processor()
+    
+    # Get config
+    config_path = "/lidar3d_detection_ws/train/config/preprocessing_config.yaml"
+    config = load_config(config_path)
+    
+    # Load point cloud and labels
+    points = read_bin_file(bin_file)
+    labels = read_label_file(label_file)
+    
+    # Create BEV image of original point cloud for comparison
+    original_bev, _ = processor.process_point_cloud(bin_file, label_file)
+    
+    demonstrate_range_filtering(points, labels, processor, original_bev, config, bin_file, label_file)
+    # Show different augmentations
+    demonstrate_rotation(points, labels, processor, original_bev, config, bin_file, label_file)
+    demonstrate_distance_scaling(points, labels, processor, original_bev, config, bin_file, label_file)
+    demonstrate_lateral_shift(points, labels, processor, original_bev, config, bin_file, label_file)
+    demonstrate_vertical_shift(points, labels, processor, original_bev, config, bin_file, label_file)
+    
+    # Add the new range filtering demonstration
+    
+    print("Augmentation demonstration complete")
+
+def demonstrate_rotation(points, labels, processor, original_bev, config, bin_file, label_file):
+    """Demonstrate rotation augmentation with different angles"""
+    rotation_angles = [0, 45, 90, 180, 270]
+    
+    print("\nDemonstrating rotation augmentation...")
+    
+    # Create a single window to reuse
+    window_name = "Rotation Augmentation"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1200, 600)
+    
+    for angle in rotation_angles:
+        # Skip 0 degrees (original)
+        if angle == 0:
+            continue
+            
+        print(f"  Rotating by {angle} degrees")
+        
+        # Apply rotation
+        rotated_points, rotated_labels = rotate_points_and_labels(points, labels, angle)
+        
+        # Save temporary bin file
+        temp_bin = "/tmp/rotated_points.bin"
+        rotated_points.astype(np.float32).tofile(temp_bin)
+        
+        # Save temporary label file
+        temp_label = "/tmp/rotated_labels.txt"
+        save_label_file(rotated_labels, temp_label)
+        
+        # Create BEV image from augmented points
+        augmented_bev, _ = processor.process_point_cloud(temp_bin, temp_label)
+        
+        # Create combined visualization
+        combined_vis = np.hstack((original_bev, augmented_bev))
+        
+        # Add text labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(combined_vis, "Original", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(combined_vis, f"Rotated by {angle} degrees", 
+                   (original_bev.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        
+        # Display the comparison
+        cv2.imshow(window_name, combined_vis)
+        
+        # Wait for 4 seconds or key press
+        key = cv2.waitKey(4000)
+        
+        # Remove temp files
+        if os.path.exists(temp_bin):
+            os.remove(temp_bin)
+        if os.path.exists(temp_label):
+            os.remove(temp_label)
+            
+        # Exit if ESC pressed
+        if key == 27:
+            cv2.destroyWindow(window_name)
+            return
+
+    # Close window after all rotations
+    cv2.destroyWindow(window_name)
+
+
+def demonstrate_distance_scaling(points, labels, processor, original_bev, config, bin_file, label_file):
+    """Demonstrate distance scaling augmentation"""
+    scaling_factors = [0.9, 0.8, 1.1, 1.2]
+    
+    print("\nDemonstrating distance scaling...")
+    
+    # Create a single window to reuse
+    window_name = "Distance Scaling Augmentation"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1200, 600)
+    
+    for scale in scaling_factors:
+        print(f"  Scaling by factor {scale}")
+        
+        # Apply scaling
+        scaled_points, scaled_labels = scale_distance_points_and_labels(points, labels, scale)
+        
+        # Save temporary bin file
+        temp_bin = "/tmp/scaled_points.bin"
+        scaled_points.astype(np.float32).tofile(temp_bin)
+        
+        # Save temporary label file
+        temp_label = "/tmp/scaled_labels.txt"
+        save_label_file(scaled_labels, temp_label)
+        
+        # Create BEV image from augmented points
+        augmented_bev, _ = processor.process_point_cloud(temp_bin, temp_label)
+        
+        # Create combined visualization
+        combined_vis = np.hstack((original_bev, augmented_bev))
+        
+        # Add text labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(combined_vis, "Original", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(combined_vis, f"Distance scaled by {scale}", 
+                   (original_bev.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        
+        # Display the comparison
+        cv2.imshow(window_name, combined_vis)
+        
+        # Wait for 4 seconds or key press
+        key = cv2.waitKey(4000)
+        
+        # Remove temp files
+        if os.path.exists(temp_bin):
+            os.remove(temp_bin)
+        if os.path.exists(temp_label):
+            os.remove(temp_label)
+            
+        # Exit if ESC pressed
+        if key == 27:
+            cv2.destroyWindow(window_name)
+            return
+
+    # Close window after all scalings
+    cv2.destroyWindow(window_name)
+
+
+def demonstrate_lateral_shift(points, labels, processor, original_bev, config, bin_file, label_file):
+    """Demonstrate lateral shifting augmentation"""
+    shift_amounts = [-5, -2, 2, 5]
+    
+    print("\nDemonstrating lateral shifting...")
+    
+    # Create a single window to reuse
+    window_name = "Lateral Shift Augmentation"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1200, 600)
+    
+    for shift in shift_amounts:
+        print(f"  Shifting laterally by {shift} meters")
+        
+        # Apply shifting
+        shifted_points, shifted_labels = shift_lateral_points_and_labels(points, labels, shift)
+        
+        # Save temporary bin file
+        temp_bin = "/tmp/shifted_points.bin"
+        shifted_points.astype(np.float32).tofile(temp_bin)
+        
+        # Save temporary label file
+        temp_label = "/tmp/shifted_labels.txt"
+        save_label_file(shifted_labels, temp_label)
+        
+        # Create BEV image from augmented points
+        augmented_bev, _ = processor.process_point_cloud(temp_bin, temp_label)
+        
+        # Create combined visualization
+        combined_vis = np.hstack((original_bev, augmented_bev))
+        
+        # Add text labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(combined_vis, "Original", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(combined_vis, f"Laterally shifted by {shift}m", 
+                   (original_bev.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        
+        # Display the comparison
+        cv2.imshow(window_name, combined_vis)
+        
+        # Wait for 4 seconds or key press
+        key = cv2.waitKey(4000)
+        
+        # Remove temp files
+        if os.path.exists(temp_bin):
+            os.remove(temp_bin)
+        if os.path.exists(temp_label):
+            os.remove(temp_label)
+            
+        # Exit if ESC pressed
+        if key == 27:
+            cv2.destroyWindow(window_name)
+            return
+
+    # Close window after all shifts
+    cv2.destroyWindow(window_name)
+
+
+def demonstrate_vertical_shift(points, labels, processor, original_bev, config, bin_file, label_file):
+    """Demonstrate vertical shifting augmentation"""
+    shift_amounts = [-1, -0.5, 0.5, 1]
+    
+    print("\nDemonstrating vertical shifting...")
+    
+    # Create a single window to reuse
+    window_name = "Vertical Shift Augmentation"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1200, 600)
+    
+    for shift in shift_amounts:
+        print(f"  Shifting vertically by {shift} meters")
+        
+        # Apply shifting
+        shifted_points, shifted_labels = shift_vertical_points_and_labels(points, labels, shift)
+        
+        # Save temporary bin file
+        temp_bin = "/tmp/shifted_points.bin"
+        shifted_points.astype(np.float32).tofile(temp_bin)
+        
+        # Save temporary label file
+        temp_label = "/tmp/shifted_labels.txt"
+        save_label_file(shifted_labels, temp_label)
+        
+        # Create BEV image from augmented points
+        augmented_bev, _ = processor.process_point_cloud(temp_bin, temp_label)
+        
+        # Create combined visualization
+        combined_vis = np.hstack((original_bev, augmented_bev))
+        
+        # Add text labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(combined_vis, "Original", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(combined_vis, f"Vertically shifted by {shift}m", 
+                   (original_bev.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        
+        # Display the comparison
+        cv2.imshow(window_name, combined_vis)
+        
+        # Wait for 4 seconds or key press
+        key = cv2.waitKey(4000)
+        
+        # Remove temp files
+        if os.path.exists(temp_bin):
+            os.remove(temp_bin)
+        if os.path.exists(temp_label):
+            os.remove(temp_label)
+            
+        # Exit if ESC pressed
+        if key == 27:
+            cv2.destroyWindow(window_name)
+            return
+
+    # Close window after all shifts
+    cv2.destroyWindow(window_name)
+
+def demonstrate_range_filtering(points, labels, processor, original_bev, config, bin_file, label_file):
+    """Demonstrate range filtering augmentation"""
+    # Define different range filter options
+    # Format: (x_min, x_max, y_min, y_max, description)
+    range_filters = [
+        (0, 5, -3, 3, "Close range (0-5m forward, ±3m lateral)"),
+        (5, 10, -5, 5, "Medium range (5-10m forward, ±5m lateral)"),
+        (10, 20, -10, 10, "Far range (10-20m forward, ±10m lateral)"),
+        (0, 30, -2, 2, "Center corridor (0-30m forward, ±2m lateral)")
+    ]
+    
+    print("\nDemonstrating range filtering...")
+    
+    # Create a single window to reuse
+    window_name = "Range Filtering"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1200, 600)
+    
+    for x_min, x_max, y_min, y_max, desc in range_filters:
+        print(f"  Filtering to range: {desc}")
+        
+        # Apply range filtering
+        filtered_points, filtered_labels = filter_points_by_range(
+            points, labels, x_min, x_max, y_min, y_max)
+        
+        # Skip if no points were found in this range
+        if len(filtered_points) == 0:
+            print(f"    No points found in range: {x_min}-{x_max}m (X), {y_min}-{y_max}m (Y)")
+            continue
+        
+        # Save temporary bin and label files
+        temp_bin = "/tmp/temp_filtered.bin"
+        temp_label = "/tmp/temp_filtered.txt"
+        
+        filtered_points.astype(np.float32).tofile(temp_bin)
+        if filtered_labels:
+            save_label_file(filtered_labels, temp_label)
+        
+        # Process the point cloud with filtered labels
+        filtered_bev, _ = processor.process_point_cloud(temp_bin, temp_label)
+        
+        # Create side-by-side comparison
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        combined_vis = np.hstack((original_bev, filtered_bev))
+        
+        # Add information text
+        cv2.putText(combined_vis, "Original", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(combined_vis, f"Filtered: {desc}", 
+                   (original_bev.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        
+        # Display the comparison
+        cv2.imshow(window_name, combined_vis)
+        
+        # Wait for 4 seconds or key press
+        key = cv2.waitKey(4000)
+        
+        # Remove temp files
+        if os.path.exists(temp_bin):
+            os.remove(temp_bin)
+        if os.path.exists(temp_label):
+            os.remove(temp_label)
+            
+        # Exit if ESC pressed
+        if key == 27:
+            cv2.destroyWindow(window_name)
+            return
+
+    # Close window after all filters
+    cv2.destroyWindow(window_name)
+
+def visualize_without_bounding_boxes():
+    """Visualize BEV images of point clouds without bounding boxes"""
+    print("Visualizing dataset without bounding boxes...")
+    
+    # Define the path to the bin files
+    data_dir = '/lidar3d_detection_ws/data/innoviz/'
+    
+    # Get the bin files
+    bin_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.bin')])
+    
+    if not bin_files:
+        print("No bin files found in directory")
+        return
+    
+    # Create a processor
+    processor = create_processor()
+    
+    # Create a window
+    window_name = "BEV Visualization (No Bounding Boxes)"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 608, 608)
+    
+    # Visualization loop
+    for i, bin_file in enumerate(bin_files):
+        base_name = os.path.basename(bin_file)
+        print(f"Processing file {i+1}/{len(bin_files)}: {base_name}")
+        
+        # Load point cloud data directly
+        points = read_bin_file(bin_file)
+        
+        # Create BEV image without any labels
+        bev_image = processor.create_bev_image(points)
+        
+        # Display the BEV image
+        cv2.imshow(window_name, bev_image)
+        
+        # Display file name on the image
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(bev_image, base_name, (10, 30), font, 0.8, (255, 255, 255), 2)
+        
+        # Wait for key press or 4 seconds
+        key = cv2.waitKey(4000)
+        
+        # Check if user wants to quit
+        if key == 27:  # ESC key
+            break
+        # Pause if space is pressed
+        elif key == 32:  # SPACE key
+            print("Paused. Press any key to continue...")
+            cv2.waitKey(0)
+    
+    cv2.destroyAllWindows()
+
+def visualize_with_filled_boxes():
+    """Visualize all bin files in the dataset with filled bounding boxes"""
+    # Define paths to data directories
+    data_dir = '/lidar3d_detection_ws/data/innoviz/'
+    labels_dir = '/lidar3d_detection_ws/data/labels/'
+    
+    # Create a processor instance
+    processor = create_processor()
+    
+    # Get all bin files
+    bin_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.bin')])
+    
+    if not bin_files:
+        print("No bin files found in directory")
+        return
+        
+    print(f"Found {len(bin_files)} bin files")
+    
+    # Create window for visualization
+    window_name = "BEV Visualization with Filled Boxes"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 800, 800)
+    
+    # Visualize each bin file
+    for i, bin_file in enumerate(bin_files):
+        base_name = os.path.basename(bin_file)
+        label_base = os.path.splitext(base_name)[0] + '.txt'
+        label_file = os.path.join(labels_dir, label_base)
+        
+        if not os.path.exists(label_file):
+            print(f"Skipping {base_name}: No corresponding label file found")
+            continue
+        
+        print(f"Processing file {i+1}/{len(bin_files)}: {base_name}")
+        
+        # Process the point cloud and get the BEV image with filled boxes
+        bev_image, _ = processor.process_point_cloud_with_filled_boxes(bin_file, label_file)
+        
+        # Display file name on the image
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(bev_image, base_name, (10, 30), font, 0.8, (255, 255, 255), 2)
+        
+        # Display the BEV image
+        cv2.imshow(window_name, bev_image)
+        
+        # Wait for key press or timeout (4 seconds)
+        key = cv2.waitKey(4000)
+        
+        # Check if user wants to quit
+        if key == 27:  # ESC key
+            break
+        # Pause if space is pressed
+        elif key == 32:  # SPACE key
+            print("Paused. Press any key to continue...")
+            cv2.waitKey(0)
+    
+    cv2.destroyAllWindows()
+
+def main():
+    print("Point Cloud BEV Visualization")
+    print("Choose an option:")
+    print("1: Visualize specific file (innoviz_00010.bin)")
+    print("2: Visualize all files in dataset")
+    print("3: Interactive visualization with controls")
+    print("4: Demonstrate augmentation techniques")
+    print("5: Visualize dataset without bounding boxes")
+    print("6: Visualize all files in dataset with filled bounding boxes")
+    
+    choice = input("Enter your choice (1-6): ")
+    
+    if choice == '1':
+        visualize_specific_file()
+    elif choice == '2':
+        visualize_dataset()
+    elif choice == '3':
+        visualize_with_controls()
+    elif choice == '4':
+        visualize_augmentations()
+    elif choice == '5':
+        visualize_without_bounding_boxes()
+    elif choice == '6':
+        visualize_with_filled_boxes()
+    else:
+        print("Invalid choice!")
 
 if __name__ == "__main__":
     main()
