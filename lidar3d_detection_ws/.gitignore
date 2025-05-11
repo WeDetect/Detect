@@ -1,5 +1,4 @@
 # Ignore specific folders
-bags/
 build/
 data/
 install/
@@ -54,13 +53,23 @@ devel_isolated/
 ehthumbs.db
 Thumbs.db
 
-# Ignore bags directory and all its contents
-bags/
-bags/**
+# Ignore contents of bags directory but keep the directory structure
+bags/*
+# Keep the bags directory itself
+!bags/.gitkeep
 
-# Ignore data directory and all its contents
-data/
-data/**
+# Ignore contents of data directory but keep the directory structure
+data/*
+# Keep the data directory and its subdirectories
+!data/.gitkeep
+!data/innoviz/
+!data/labels/
+# Ignore contents of the subdirectories but keep their structure
+data/innoviz/*
+data/labels/*
+# Keep the subdirectories themselves
+!data/innoviz/.gitkeep
+!data/labels/.gitkeep
 
 # Ignore logs folder
 logs/
