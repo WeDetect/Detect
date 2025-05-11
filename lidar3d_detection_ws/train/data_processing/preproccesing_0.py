@@ -524,69 +524,6 @@ class PointCloudProcessor:
             
         return bev_with_boxes, yolo_labels
 
-    def process_point_cloud_with_filled_boxes(self, pc_file, label_file, output_img=None, output_label=None):
-        """
-        Process a point cloud file and corresponding labels with filled boxes
-        
-        Parameters:
-        -----------
-        pc_file : str
-            Path to point cloud file
-        label_file : str
-            Path to label file
-        output_img : str or None
-            Path to save the output BEV image, if None, the image is not saved
-        output_label : str or None
-            Path to save the output YOLO labels, if None, the labels are not saved
-            
-        Returns:
-        --------
-        tuple
-            (bev_image, yolo_labels) - the BEV image and list of YOLO labels
-        """
-        # Load point cloud data
-        points = self.load_point_cloud(pc_file)
-        
-        # Load label data
-        objects = self.load_labels(label_file)
-        
-        # Create BEV image
-        bev_image = self.create_bev_image(points)
-        
-        # For visualization with all boxes
-        bev_with_boxes = bev_image.copy()
-        
-        # Process objects and create YOLO labels
-        yolo_labels = []
-        
-        for obj in objects:
-            # Transform 3D box to BEV
-            corners_bev, center_bev = self.transform_3d_box_to_bev(
-                obj['dimensions'], obj['location'], obj['rotation_y']
-            )
-            
-            # Draw filled box on the visualization image
-            bev_with_boxes = self.draw_filled_box_on_bev(
-                bev_with_boxes, corners_bev, center_bev, obj['type']
-            )
-            
-            # Create YOLO label
-            yolo_label = self.create_yolo_label(
-                corners_bev, obj['type'], bev_image.shape[:2]
-            )
-            yolo_labels.append(yolo_label)
-        
-        # Save outputs if paths are provided
-        if output_img:
-            cv2.imwrite(output_img, bev_with_boxes)
-            print(f"BEV image saved to: {output_img}")
-            
-        if output_label:
-            with open(output_label, 'w') as f:
-                f.write('\n'.join(yolo_labels))
-            print(f"YOLO labels saved to: {output_label}")
-            
-        return bev_with_boxes, yolo_labels
 
 def main():
     # Example usage

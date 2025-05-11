@@ -19,7 +19,8 @@ from data_processing.augmentation import (rotate_points_and_labels,
                                          shift_lateral_points_and_labels,
                                          shift_vertical_points_and_labels,
                                          filter_points_by_range,
-                                         save_label_file)
+                                         save_label_file,
+                                         create_range_adapted_bev_image)
 from data_processing.preprocessing import read_bin_file, read_label_file, load_config
 
 def create_processor():
@@ -561,7 +562,7 @@ def demonstrate_vertical_shift(points, labels, processor, original_bev, config, 
     cv2.destroyWindow(window_name)
 
 def demonstrate_range_filtering(points, labels, processor, original_bev, config, bin_file, label_file):
-    """Demonstrate range filtering augmentation"""
+    """Demonstrate range filtering augmentation with adaptive resolution"""
     # Define different range filter options
     # Format: (x_min, x_max, y_min, y_max, description)
     range_filters = [
@@ -571,12 +572,18 @@ def demonstrate_range_filtering(points, labels, processor, original_bev, config,
         (0, 30, -2, 2, "Center corridor (0-30m forward, ±2m lateral)")
     ]
     
-    print("\nDemonstrating range filtering...")
+    print("\nDemonstrating range filtering with adaptive resolution...")
     
     # Create a single window to reuse
-    window_name = "Range Filtering"
+    window_name = "Range Filtering (Adaptive Resolution)"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(window_name, 1200, 600)
+    
+    # Resize original BEV to 608x608 if needed
+    if original_bev.shape[0] != 608 or original_bev.shape[1] != 608:
+        display_original = cv2.resize(original_bev, (608, 608))
+    else:
+        display_original = original_bev.copy()
     
     for x_min, x_max, y_min, y_max, desc in range_filters:
         print(f"  Filtering to range: {desc}")
@@ -590,25 +597,18 @@ def demonstrate_range_filtering(points, labels, processor, original_bev, config,
             print(f"    No points found in range: {x_min}-{x_max}m (X), {y_min}-{y_max}m (Y)")
             continue
         
-        # Save temporary bin and label files
-        temp_bin = "/tmp/temp_filtered.bin"
-        temp_label = "/tmp/temp_filtered.txt"
-        
-        filtered_points.astype(np.float32).tofile(temp_bin)
-        if filtered_labels:
-            save_label_file(filtered_labels, temp_label)
-        
-        # Process the point cloud with filtered labels
-        filtered_bev, _ = processor.process_point_cloud(temp_bin, temp_label)
+        # Create BEV image with adaptive resolution to fill the entire view
+        adapted_bev, _ = create_range_adapted_bev_image(
+            points, labels, x_min, x_max, y_min, y_max, config)
         
         # Create side-by-side comparison
         font = cv2.FONT_HERSHEY_SIMPLEX
-        combined_vis = np.hstack((original_bev, filtered_bev))
+        combined_vis = np.hstack((display_original, adapted_bev))
         
         # Add information text
         cv2.putText(combined_vis, "Original", (10, 30), font, 0.8, (255, 255, 255), 2)
-        cv2.putText(combined_vis, f"Filtered: {desc}", 
-                   (original_bev.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(combined_vis, f"Filtered & Scaled: {desc}", 
+                   (display_original.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
         
         # Display the comparison
         cv2.imshow(window_name, combined_vis)
@@ -616,12 +616,6 @@ def demonstrate_range_filtering(points, labels, processor, original_bev, config,
         # Wait for 4 seconds or key press
         key = cv2.waitKey(4000)
         
-        # Remove temp files
-        if os.path.exists(temp_bin):
-            os.remove(temp_bin)
-        if os.path.exists(temp_label):
-            os.remove(temp_label)
-            
         # Exit if ESC pressed
         if key == 27:
             cv2.destroyWindow(window_name)
