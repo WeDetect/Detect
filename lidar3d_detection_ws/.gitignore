@@ -78,3 +78,6 @@ logs/
 train/output/
 train/output/**
 
+# Ignore YOLO dataset and what inside it
+train/dataset/
+train/dataset/**

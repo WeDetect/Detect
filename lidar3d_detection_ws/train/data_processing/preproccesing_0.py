@@ -524,6 +524,120 @@ class PointCloudProcessor:
             
         return bev_with_boxes, yolo_labels
 
+def convert_labels_to_yolo_format(labels, config, img_width, img_height):
+    """
+    Convert KITTI format labels to YOLO format
+    
+    Args:
+        labels: List of label dictionaries
+        config: Preprocessing configuration
+        img_width: Image width
+        img_height: Image height
+    
+    Returns:
+        List of YOLO format labels [class_id, x_center, y_center, width, height]
+    """
+    yolo_labels = []
+    
+    for label in labels:
+        # Skip DontCare labels
+        if label['type'] == 'DontCare':
+            continue
+        
+        # Determine class ID
+        class_id = 0  # Default to Car
+        if label['type'] == 'Pedestrian':
+            class_id = 1
+        elif label['type'] == 'Cyclist':
+            class_id = 2
+        elif label['type'] == 'Truck':
+            class_id = 3
+        
+        # Extract 3D information
+        h, w, l = label['dimensions']  # height, width, length
+        x, y, z = label['location']    # 3D location
+        ry = label['rotation_y']       # rotation around Y-axis
+        
+        # Calculate 3D bounding box corners in BEV
+        # Create the 3D bounding box based on dimensions and rotation
+        cos_ry = np.cos(ry)
+        sin_ry = np.sin(ry)
+        
+        # Corners of the unrotated box (relative to center)
+        half_l = l / 2
+        half_w = w / 2
+        
+        # 3D corners (only consider x and y for BEV)
+        corners = np.array([
+            [half_l, half_w],  # front right
+            [half_l, -half_w], # front left
+            [-half_l, -half_w], # rear left
+            [-half_l, half_w]  # rear right
+        ])
+        
+        # Rotate corners
+        rotation_matrix = np.array([
+            [cos_ry, -sin_ry],
+            [sin_ry, cos_ry]
+        ])
+        
+        rotated_corners = np.dot(corners, rotation_matrix.T)
+        
+        # Add center position
+        rotated_corners[:, 0] += x
+        rotated_corners[:, 1] += y
+        
+        # Convert to BEV pixel coordinates
+        corners_bev = np.zeros_like(rotated_corners)
+        corners_bev[:, 0] = rotated_corners[:, 0] / config['DISCRETIZATION']
+        corners_bev[:, 1] = rotated_corners[:, 1] / config['DISCRETIZATION'] + img_width / 2
+        
+        # Calculate bounding box in BEV
+        x_min = np.min(corners_bev[:, 0])
+        y_min = np.min(corners_bev[:, 1])
+        x_max = np.max(corners_bev[:, 0])
+        y_max = np.max(corners_bev[:, 1])
+        
+        # Ensure box is within image bounds
+        x_min = max(0, min(x_min, img_width-1))
+        y_min = max(0, min(y_min, img_height-1))
+        x_max = max(0, min(x_max, img_width-1))
+        y_max = max(0, min(y_max, img_height-1))
+        
+        # Calculate YOLO format (center x, center y, width, height) - normalized
+        bbox_width = x_max - x_min
+        bbox_height = y_max - y_min
+        
+        # Skip invalid boxes
+        if bbox_width <= 0 or bbox_height <= 0:
+            continue
+            
+        center_x = (x_min + x_max) / 2
+        center_y = (y_min + y_max) / 2
+        
+        # Normalize coordinates
+        center_x /= img_width
+        center_y /= img_height
+        bbox_width /= img_width
+        bbox_height /= img_height
+        
+        # Create YOLO format label
+        yolo_label = [class_id, center_x, center_y, bbox_width, bbox_height]
+        yolo_labels.append(yolo_label)
+    
+    return yolo_labels
+
+def save_yolo_labels(yolo_labels, output_path):
+    """
+    Save YOLO format labels to a text file
+    
+    Args:
+        yolo_labels: List of YOLO format labels
+        output_path: Path to save the output file
+    """
+    with open(output_path, 'w') as f:
+        for label in yolo_labels:
+            f.write(f"{int(label[0])} {label[1]:.6f} {label[2]:.6f} {label[3]:.6f} {label[4]:.6f}\n")
 
 def main():
     # Example usage

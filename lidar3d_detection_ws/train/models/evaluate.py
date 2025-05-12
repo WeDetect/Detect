@@ -1,3 +1,10 @@
+# Add import for OS environment variables at the top
+import os
+
+# Set headless mode for matplotlib and Qt
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ["DISPLAY"] = ""
+
 # ✅ evaluate.py – Evaluate YOLOv5 model on BEV LiDAR data
 from ultralytics import YOLO
 import cv2
@@ -6,6 +13,10 @@ import torch
 import numpy as np
 from pathlib import Path
 import yaml
+import argparse
+import random
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 # Define functions from preprocessing.py
 def load_config(config_path):
@@ -133,187 +144,330 @@ def convert_labels_to_yolo_format(labels, config, img_width, img_height):
     
     return yolo_labels
 
-# Paths
-MODEL_PATH = '/lidar3d_detection_ws/train/output/bev_transfer_final.pt'
-BIN_DIR = '/lidar3d_detection_ws/data/innoviz'
-LABEL_DIR = '/lidar3d_detection_ws/data/labels'
-CONFIG_PATH = '/lidar3d_detection_ws/train/config/preprocessing_config.yaml'
-OUTPUT_PATH = '/lidar3d_detection_ws/train/output/eval'
-os.makedirs(OUTPUT_PATH, exist_ok=True)
+# Constants
+DEFAULT_CONFIG = {
+    'model_path': '/lidar3d_detection_ws/train/output/bev_transfer_final.pt',
+    'bin_dir': '/lidar3d_detection_ws/data/innoviz',
+    'label_dir': '/lidar3d_detection_ws/data/labels',
+    'config_path': '/lidar3d_detection_ws/train/config/preprocessing_config.yaml',
+    'output_dir': '/lidar3d_detection_ws/train/output/eval',
+    'num_samples': 5,
+    'conf_threshold': 0.25,
+    'iou_threshold': 0.45
+}
 
-# Load config
-config = load_config(CONFIG_PATH)
-print(f"Loaded config from {CONFIG_PATH}")
+# Class names
+CLASS_NAMES = ['Car', 'Pedestrian', 'Cyclist', 'Truck']
 
-# Class names - make sure this matches what the model was trained on
-CLASS_NAMES = ['Car', 'Pedestrian', 'Cyclist', 'Truck']  # Removed DontCare
-
-# Load trained model
-print(f"Loading model from {MODEL_PATH}")
-model = YOLO(MODEL_PATH)
-
-# Print model information to debug
-print(f"Model has {model.model.model[-1].nc} classes")
-
-# Initialize metrics - only track the classes we care about
-class_metrics = {cls_name: {'TP': 0, 'FP': 0, 'FN': 0} for cls_name in CLASS_NAMES}
-total_objects = 0
-detected_objects = 0
-
-# Run evaluation on each bin file
-bin_files = sorted(Path(BIN_DIR).glob('*.bin'))
-print(f"Found {len(bin_files)} bin files for evaluation")
-
-for bin_file in bin_files:
-    print(f"Processing {bin_file.name}...")
+def convert_labels_to_boxes(labels, config, img_width, img_height):
+    """
+    Convert KITTI format labels to bounding boxes
     
-    # Generate BEV image from bin file
-    points = read_bin_file(bin_file)
-    label_file = Path(LABEL_DIR) / f"{bin_file.stem}.txt"
-    labels = read_label_file(label_file)
-    
-    # Create BEV image
-    bev_image, _ = create_bev_image(points, config, labels)
-    
-    if bev_image is None:
-        print(f"Could not create BEV image for {bin_file}")
-        continue
-
-    # Get ground truth boxes in YOLO format
-    gt_yolo = convert_labels_to_yolo_format(labels, config, bev_image.shape[1], bev_image.shape[0])
-    
-    # Convert YOLO format to pixel coordinates for visualization
-    gt_boxes = []
-    for gt in gt_yolo:
-        cls_id, x_center, y_center, width, height = gt
-        img_h, img_w = bev_image.shape[:2]
-        x1 = int((x_center - width/2) * img_w)
-        y1 = int((y_center - height/2) * img_h)
-        x2 = int((x_center + width/2) * img_w)
-        y2 = int((y_center + height/2) * img_h)
-        gt_boxes.append((int(cls_id), (x1, y1, x2, y2)))
+    Args:
+        labels: Labels in KITTI format
+        config: Preprocessing configuration
+        img_width: Image width
+        img_height: Image height
         
-        # Count total objects by class
-        total_objects += 1
-        class_metrics[CLASS_NAMES[int(cls_id)]]['FN'] += 1  # Assume FN first, will adjust if detected
-    
-    # Run inference with lower confidence threshold since we're evaluating on training data
-    results = model(bev_image, conf=0.1, iou=0.3)  # Lower thresholds for better detection
-    
-    # Create a copy for visualization
-    vis_image = bev_image.copy()
-    
-    # Draw ground truth boxes (in blue)
-    for cls_id, (x1, y1, x2, y2) in gt_boxes:
-        cv2.rectangle(vis_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # Blue for ground truth
-        cv2.putText(vis_image, f"GT: {CLASS_NAMES[cls_id]}", (x1, y1 - 10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-    
-    # Process detection results
-    for r in results:
-        boxes = r.boxes.xyxy.cpu().numpy()
-        classes = r.boxes.cls.cpu().numpy().astype(int)
-        confs = r.boxes.conf.cpu().numpy()
+    Returns:
+        List of (class_id, box) tuples where box is (x1, y1, x2, y2)
+    """
+    boxes = []
+    for label in labels:
+        if label['type'] == 'DontCare':
+            continue
+        elif label['type'] == 'Car':
+            class_id = 0
+        elif label['type'] == 'Pedestrian':
+            class_id = 1
+        elif label['type'] == 'Cyclist':
+            class_id = 2
+        elif label['type'] == 'Truck':
+            class_id = 3
+        else:
+            continue
+            
+        x, y, z = label['location']
+        h, w, l = label['dimensions']
+
+        # Convert to BEV coordinates
+        x_bev = x / config['DISCRETIZATION']
+        y_bev = y / config['DISCRETIZATION'] + img_width / 2
+
+        # Calculate width and height in pixels
+        width_px = w / config['DISCRETIZATION']
+        height_px = l / config['DISCRETIZATION']
         
-        for box, cls_id, conf in zip(boxes, classes, confs):
-            x1, y1, x2, y2 = map(int, box)
+        # Calculate box coordinates
+        x1 = int(x_bev - width_px/2)
+        y1 = int(y_bev - height_px/2)
+        x2 = int(x_bev + width_px/2)
+        y2 = int(y_bev + height_px/2)
+        
+        # Make sure box is within image bounds
+        x1 = max(0, min(img_width-1, x1))
+        y1 = max(0, min(img_height-1, y1))
+        x2 = max(0, min(img_width-1, x2))
+        y2 = max(0, min(img_height-1, y2))
+        
+        # Only add box if it has positive area
+        if x2 > x1 and y2 > y1:
+            boxes.append((class_id, (x1, y1, x2, y2)))
+    
+    return boxes
+
+def calculate_iou(box1, box2):
+    """
+    Calculate IoU between two boxes
+    
+    Args:
+        box1: First box (x1, y1, x2, y2)
+        box2: Second box (x1, y1, x2, y2)
+        
+    Returns:
+        IoU score
+    """
+    # Get coordinates of intersection rectangle
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    
+    # Calculate area of intersection rectangle
+    intersection_area = max(0, x2 - x1) * max(0, y2 - y1)
+    
+    # Calculate area of both boxes
+    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    
+    # Calculate union area
+    union_area = box1_area + box2_area - intersection_area
+    
+    # Calculate IoU
+    if union_area == 0:
+        return 0
+    
+    return intersection_area / union_area
+
+def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir, 
+                  num_samples=5, conf_threshold=0.25, iou_threshold=0.45, save_images=True):
+    """
+    Evaluate YOLO model on BEV LiDAR data
+    
+    Args:
+        model_path: Path to trained model file
+        bin_dir: Directory with .bin files
+        label_dir: Directory with label .txt files
+        config_path: Path to preprocessing config YAML
+        output_dir: Directory to save evaluation results
+        num_samples: Number of samples to evaluate (randomly selected)
+        conf_threshold: Confidence threshold for predictions
+        iou_threshold: IoU threshold for matching boxes
+        save_images: Whether to save visualization of detection results
+    
+    Returns:
+        Evaluation metrics dictionary
+    """
+    # Load model
+    print(f"Loading model from {model_path}")
+    model = YOLO(model_path)
+    
+    # Load config
+    config = load_config(config_path)
+    
+    # Get all bin files
+    bin_files = list(Path(bin_dir).glob("*.bin"))
+    
+    # Randomly select files if too many
+    if len(bin_files) > num_samples:
+        bin_files = random.sample(bin_files, num_samples)
+    
+    # Initialize metrics
+    class_metrics = {cls_name: {'TP': 0, 'FP': 0, 'FN': 0} for cls_name in CLASS_NAMES}
+    total_objects = 0
+    detected_objects = 0
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Evaluate each file
+    for i, bin_file in enumerate(tqdm(bin_files, desc="Evaluating model")):
+        print(f"\nProcessing {bin_file.name}...")
+        
+        # Get corresponding label file
+        label_file = Path(label_dir) / f"{bin_file.stem}.txt"
+        if not label_file.exists():
+            print(f"Label file {label_file} not found, skipping")
+            continue
+        
+        # Load point cloud and labels
+        points = read_bin_file(bin_file)
+        labels = read_label_file(label_file)
+        
+        # Create BEV image without annotations for model input
+        bev_image, _ = create_bev_image(points, config)
+        
+        # Convert labels to boxes for evaluation
+        gt_boxes = convert_labels_to_boxes(labels, config, bev_image.shape[1], bev_image.shape[0])
+        
+        # Count total objects
+        total_objects += len(gt_boxes)
+        for cls_id, _ in gt_boxes:
+            class_metrics[CLASS_NAMES[cls_id]]['FN'] += 1  # Assume FN first
+        
+        # Run inference
+        results = model(bev_image, conf=conf_threshold, iou=iou_threshold)
+        
+        # Extract predictions
+        pred_boxes = []
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                # Convert box to integer coordinates
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cls_id = int(box.cls[0])
+                conf = float(box.conf[0])
+                
+                pred_boxes.append((cls_id, (x1, y1, x2, y2), conf))
+        
+        # Match predictions with ground truth
+        gt_matched = [False] * len(gt_boxes)
+        
+        for p_idx, (p_cls_id, p_box, p_conf) in enumerate(pred_boxes):
+            best_iou = 0
+            best_gt_idx = -1
             
-            # Safety check for class index
-            if cls_id >= len(CLASS_NAMES):
-                print(f"Warning: Model predicted class {cls_id} which is out of range. Skipping.")
-                continue
-            
-            label = f"{CLASS_NAMES[cls_id]} {conf:.2f}"
-            
-            # Draw prediction boxes (in green)
-            cv2.rectangle(vis_image, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Green for predictions
-            cv2.putText(vis_image, label, (x1, y1 - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                      
-            # Check if this detection matches any ground truth box
-            matched = False
-            for gt_cls, gt_box in gt_boxes:
-                gt_x1, gt_y1, gt_x2, gt_y2 = gt_box
+            # Find best matching ground truth box
+            for gt_idx, (gt_cls_id, gt_box) in enumerate(gt_boxes):
+                # Only match with same class
+                if gt_cls_id != p_cls_id:
+                    continue
+                
+                # Check if already matched
+                if gt_matched[gt_idx]:
+                    continue
                 
                 # Calculate IoU
-                x_left = max(x1, gt_x1)
-                y_top = max(y1, gt_y1)
-                x_right = min(x2, gt_x2)
-                y_bottom = min(y2, gt_y2)
+                iou = calculate_iou(gt_box, p_box)
                 
-                if x_right < x_left or y_bottom < y_top:
-                    continue  # No overlap
-                
-                intersection = (x_right - x_left) * (y_bottom - y_top)
-                area1 = (x2 - x1) * (y2 - y1)
-                area2 = (gt_x2 - gt_x1) * (gt_y2 - gt_y1)
-                iou = intersection / (area1 + area2 - intersection)
-                
-                # Use a lower IoU threshold since we're evaluating on training data
-                if iou > 0.3 and cls_id == gt_cls:  # Lower IoU threshold
-                    matched = True
-                    detected_objects += 1
-                    
-                    # Update metrics
-                    class_metrics[CLASS_NAMES[cls_id]]['TP'] += 1
-                    class_metrics[CLASS_NAMES[cls_id]]['FN'] -= 1  # Remove from FN count
-                    break
+                # Update best match if better
+                if iou > best_iou and iou >= iou_threshold:
+                    best_iou = iou
+                    best_gt_idx = gt_idx
             
-            if not matched:
-                class_metrics[CLASS_NAMES[cls_id]]['FP'] += 1
-
-    # Save visualization
-    out_path = os.path.join(OUTPUT_PATH, f"{bin_file.stem}_eval.png")
-    cv2.imwrite(out_path, vis_image)
-    print(f"Saved visualization to {out_path}")
-
-# Calculate and print metrics
-print("\n===== EVALUATION RESULTS =====")
-print(f"Total objects: {total_objects}")
-print(f"Detected objects: {detected_objects}")
-print(f"Overall detection rate: {detected_objects/total_objects*100:.2f}%")
-print("\nPer-class metrics:")
-
-for cls_name, metrics in class_metrics.items():
-    tp = metrics['TP']
-    fp = metrics['FP']
-    fn = metrics['FN']
+            # If found a match, it's a true positive
+            if best_gt_idx >= 0:
+                gt_matched[best_gt_idx] = True
+                detected_objects += 1
+                class_metrics[CLASS_NAMES[p_cls_id]]['TP'] += 1
+                class_metrics[CLASS_NAMES[p_cls_id]]['FN'] -= 1  # Remove FN assumption
+            else:
+                # No match, it's a false positive
+                class_metrics[CLASS_NAMES[p_cls_id]]['FP'] += 1
+        
+        # Save visualization if requested
+        if save_images:
+            # Create visualization of detection results
+            vis_image = visualize_detection_results(bev_image.copy(), gt_boxes, pred_boxes)
+            
+            # Save visualization
+            output_path = os.path.join(output_dir, f"{bin_file.stem}_detection.png")
+            cv2.imwrite(output_path, vis_image)
+            
+            print(f"Saved visualization to {output_path}")
     
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    # Calculate metrics
+    metrics = {
+        'total_objects': total_objects,
+        'detected_objects': detected_objects,
+        'detection_rate': detected_objects / total_objects if total_objects > 0 else 0,
+        'class_metrics': {}
+    }
     
-    print(f"\n{cls_name}:")
-    print(f"  True Positives: {tp}")
-    print(f"  False Positives: {fp}")
-    print(f"  False Negatives: {fn}")
-    print(f"  Precision: {precision:.4f}")
-    print(f"  Recall: {recall:.4f}")
-    print(f"  F1 Score: {f1:.4f}")
-
-# Save metrics to file
-with open(os.path.join(OUTPUT_PATH, "evaluation_metrics.txt"), "w") as f:
-    f.write("===== EVALUATION RESULTS =====\n")
-    f.write(f"Total objects: {total_objects}\n")
-    f.write(f"Detected objects: {detected_objects}\n")
-    f.write(f"Overall detection rate: {detected_objects/total_objects*100:.2f}%\n\n")
-    f.write("Per-class metrics:\n")
-    
-    for cls_name, metrics in class_metrics.items():
-        tp = metrics['TP']
-        fp = metrics['FP']
-        fn = metrics['FN']
+    # Calculate per-class metrics
+    for cls_name, counts in class_metrics.items():
+        tp = counts['TP']
+        fp = counts['FP']
+        fn = counts['FN']
         
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
         
-        f.write(f"\n{cls_name}:\n")
-        f.write(f"  True Positives: {tp}\n")
-        f.write(f"  False Positives: {fp}\n")
-        f.write(f"  False Negatives: {fn}\n")
-        f.write(f"  Precision: {precision:.4f}\n")
-        f.write(f"  Recall: {recall:.4f}\n")
-        f.write(f"  F1 Score: {f1:.4f}\n")
+        metrics['class_metrics'][cls_name] = {
+            'TP': tp,
+            'FP': fp,
+            'FN': fn,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1
+        }
+    
+    # Print metrics
+    print("\n===== EVALUATION RESULTS =====")
+    print(f"Total objects: {total_objects}")
+    print(f"Detected objects: {detected_objects}")
+    print(f"Overall detection rate: {metrics['detection_rate']*100:.2f}%")
+    print("\nPer-class metrics:")
+    
+    for cls_name, cls_metrics in metrics['class_metrics'].items():
+        print(f"\n{cls_name}:")
+        print(f"  True Positives: {cls_metrics['TP']}")
+        print(f"  False Positives: {cls_metrics['FP']}")
+        print(f"  False Negatives: {cls_metrics['FN']}")
+        print(f"  Precision: {cls_metrics['precision']:.4f}")
+        print(f"  Recall: {cls_metrics['recall']:.4f}")
+        print(f"  F1 Score: {cls_metrics['f1']:.4f}")
+    
+    # Save metrics to file
+    with open(os.path.join(output_dir, "metrics.txt"), "w") as f:
+        f.write("===== EVALUATION RESULTS =====\n")
+        f.write(f"Total objects: {total_objects}\n")
+        f.write(f"Detected objects: {detected_objects}\n")
+        f.write(f"Overall detection rate: {metrics['detection_rate']*100:.2f}%\n")
+        f.write("\nPer-class metrics:\n")
+        
+        for cls_name, cls_metrics in metrics['class_metrics'].items():
+            f.write(f"\n{cls_name}:\n")
+            f.write(f"  True Positives: {cls_metrics['TP']}\n")
+            f.write(f"  False Positives: {cls_metrics['FP']}\n")
+            f.write(f"  False Negatives: {cls_metrics['FN']}\n")
+            f.write(f"  Precision: {cls_metrics['precision']:.4f}\n")
+            f.write(f"  Recall: {cls_metrics['recall']:.4f}\n")
+            f.write(f"  F1 Score: {cls_metrics['f1']:.4f}\n")
+    
+    return metrics
 
-print(f"\nEvaluation complete. Results saved to {OUTPUT_PATH}")
+def main():
+    parser = argparse.ArgumentParser(description="Evaluate YOLO model on BEV LiDAR data")
+    parser.add_argument("--model", default=DEFAULT_CONFIG['model_path'], help="Path to trained model file")
+    parser.add_argument("--bin_dir", default=DEFAULT_CONFIG['bin_dir'], help="Directory with .bin files")
+    parser.add_argument("--label_dir", default=DEFAULT_CONFIG['label_dir'], help="Directory with label .txt files")
+    parser.add_argument("--config", default=DEFAULT_CONFIG['config_path'], help="Path to preprocessing config YAML")
+    parser.add_argument("--output", default=DEFAULT_CONFIG['output_dir'], help="Directory to save evaluation results")
+    parser.add_argument("--num_samples", type=int, default=DEFAULT_CONFIG['num_samples'], help="Number of samples to evaluate")
+    parser.add_argument("--conf_threshold", type=float, default=DEFAULT_CONFIG['conf_threshold'], help="Confidence threshold")
+    parser.add_argument("--iou_threshold", type=float, default=DEFAULT_CONFIG['iou_threshold'], help="IoU threshold")
+    parser.add_argument("--save_images", action="store_true", help="Whether to save visualization of detection results")
+    
+    args = parser.parse_args()
+    
+    print(f"Evaluating model {args.model} on {args.num_samples} samples")
+    
+    metrics = evaluate_model(
+        model_path=args.model,
+        bin_dir=args.bin_dir,
+        label_dir=args.label_dir,
+        config_path=args.config,
+        output_dir=args.output,
+        num_samples=args.num_samples,
+        conf_threshold=args.conf_threshold,
+        iou_threshold=args.iou_threshold,
+        save_images=args.save_images
+    )
+    
+    print("\nEvaluation complete!")
+    print(f"Results saved to {args.output}")
+
+if __name__ == "__main__":
+    main()
