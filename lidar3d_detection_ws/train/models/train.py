@@ -199,224 +199,336 @@ def apply_visualize_style_augmentations(points, labels, config):
     print(f"Created {len(augmented_data)} augmented data items")
     return augmented_data
 
-def apply_robust_augmentations(points, labels, config):
-    """
-    Create augmentations for training using proven augmentation techniques
-    
-    Args:
-        points: Point cloud data
-        labels: Label data
-        config: Configuration dictionary
-        
-    Returns:
-        List of augmented (bev_image, yolo_labels, visualization_image) tuples
-    """
-    augmented_data = []
-    processor = PointCloudProcessor(config_path="/lidar3d_detection_ws/train/config/preprocessing_config.yaml")
-    
-    # Get original BEV for comparison
-    original_bev = processor.create_bev_image(points)
-    original_yolo = convert_labels_to_yolo_format(labels, config, 
-                                           original_bev.shape[1], original_bev.shape[0])
-    
-    # Original visualization with bounding boxes
-    original_vis = original_bev.copy()
-    for label in labels:
-        if label['type'] == 'DontCare':
-            continue
-            
-        corners_bev, center_bev = processor.transform_3d_box_to_bev(
-            label['dimensions'], label['location'], label['rotation_y']
-        )
-        
-        original_vis = processor.draw_box_on_bev(original_vis, corners_bev, center_bev, label['type'])
-    
-    # Add original with visualization
-    augmented_data.append((original_bev, original_yolo, original_vis))
-    
-    # 1. Rotations (45-degree increments)
-    rotation_angles = [45, 90, 135, 180, 225, 270, 315]
-    
-    for angle in rotation_angles:
-        # Apply rotation using the tested function
-        rotated_points, rotated_labels = rotate_points_and_labels(points.copy(), labels.copy(), angle)
-        
-        # Generate BEV image from augmented points
-        rotated_bev = processor.create_bev_image(rotated_points)
-        
-        # Create YOLO labels for training
-        img_height, img_width = rotated_bev.shape[:2]
-        rotated_yolo = convert_labels_to_yolo_format(rotated_labels, config, img_width, img_height)
-        
-        # Create visualization with boxes for verification
-        rotated_vis = rotated_bev.copy()
-        for label in rotated_labels:
-            if label['type'] == 'DontCare':
-                continue
-                
-            corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                label['dimensions'], label['location'], label['rotation_y']
-            )
-            
-            rotated_vis = processor.draw_box_on_bev(rotated_vis, corners_bev, center_bev, label['type'])
-        
-        augmented_data.append((rotated_bev, rotated_yolo, rotated_vis))
-    
-    # 2. Vertical shifts
-    height_shifts = [-1.0, -0.5, 0.5, 1.0]
-    
-    for shift in height_shifts:
-        # Apply vertical shift using tested function
-        shifted_points, shifted_labels = shift_vertical_points_and_labels(points.copy(), labels.copy(), shift)
-        
-        # Generate BEV image from shifted points
-        shifted_bev = processor.create_bev_image(shifted_points)
-        
-        # Create YOLO labels for training
-        img_height, img_width = shifted_bev.shape[:2]
-        shifted_yolo = convert_labels_to_yolo_format(shifted_labels, config, img_width, img_height)
-        
-        # Create visualization with boxes for verification
-        shifted_vis = shifted_bev.copy()
-        for label in shifted_labels:
-            if label['type'] == 'DontCare':
-                continue
-                
-            corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                label['dimensions'], label['location'], label['rotation_y']
-            )
-            
-            shifted_vis = processor.draw_box_on_bev(shifted_vis, corners_bev, center_bev, label['type'])
-        
-        augmented_data.append((shifted_bev, shifted_yolo, shifted_vis))
-    
-    # 3. Lateral shifts
-    lateral_shifts = [-2.0, -1.0, 1.0, 2.0]
-    
-    for shift in lateral_shifts:
-        # Apply lateral shift using tested function
-        shifted_points, shifted_labels = shift_lateral_points_and_labels(points.copy(), labels.copy(), shift)
-        
-        # Generate BEV image from shifted points
-        shifted_bev = processor.create_bev_image(shifted_points)
-        
-        # Create YOLO labels for training
-        img_height, img_width = shifted_bev.shape[:2]
-        shifted_yolo = convert_labels_to_yolo_format(shifted_labels, config, img_width, img_height)
-        
-        # Create visualization with boxes for verification
-        shifted_vis = shifted_bev.copy()
-        for label in shifted_labels:
-            if label['type'] == 'DontCare':
-                continue
-                
-            corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                label['dimensions'], label['location'], label['rotation_y']
-            )
-            
-            shifted_vis = processor.draw_box_on_bev(shifted_vis, corners_bev, center_bev, label['type'])
-        
-        augmented_data.append((shifted_bev, shifted_yolo, shifted_vis))
-    
-    # 4. Distance scaling
-    scale_factors = [0.8, 0.9, 1.1, 1.2]
-    
-    for scale in scale_factors:
-        # Apply distance scaling using tested function
-        scaled_points, scaled_labels = processor.scale_distance_points_and_labels(points.copy(), labels.copy(), scale)
-        
-        # Generate BEV image from scaled points
-        scaled_bev = processor.create_bev_image(scaled_points)
-        
-        # Create YOLO labels for training
-        img_height, img_width = scaled_bev.shape[:2]
-        scaled_yolo = convert_labels_to_yolo_format(scaled_labels, config, img_width, img_height)
-        
-        # Create visualization with boxes for verification
-        scaled_vis = scaled_bev.copy()
-        for label in scaled_labels:
-            if label['type'] == 'DontCare':
-                continue
-                
-            corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                label['dimensions'], label['location'], label['rotation_y']
-            )
-            
-            scaled_vis = processor.draw_box_on_bev(scaled_vis, corners_bev, center_bev, label['type'])
-        
-        augmented_data.append((scaled_bev, scaled_yolo, scaled_vis))
-    
-    # 5. Range adaptations (zoom into specific regions)
-    range_configurations = [
-        (0, 10, -5, 5),  # Close range - 10m forward, 5m to each side
-        (10, 20, -10, 10),  # Mid range
-        (5, 15, -7, 7),  # Another variation
-    ]
-    
-    for x_min, x_max, y_min, y_max in range_configurations:
-        # Create adapted BEV using tested function
-        adapted_bev, adapted_yolo = create_range_adapted_bev_image(
-            points, labels, x_min, x_max, y_min, y_max, config
-        )
-        
-        # Only add if we got valid labels in this region
-        if len(adapted_yolo) > 0:
-            # The visualization already has boxes drawn on it from create_range_adapted_bev_image
-            augmented_data.append((adapted_bev, adapted_yolo, adapted_bev.copy()))
-    
-    print(f"Generated {len(augmented_data)} augmented samples (including original)")
-    return augmented_data
-
 def generate_augmented_dataset_with_visualization(bin_dir, label_dir, config_path, output_dir, img_size, augmentation_factor=3):
     """
     Generate augmented dataset from bin files and labels with visualization images
+    
+    Args:
+        bin_dir: Directory with .bin files
+        label_dir: Directory with label .txt files
+        config_path: Path to preprocessing config YAML
+        output_dir: Directory to save output data
+        img_size: Image size for output
+        augmentation_factor: Number of augmentations per original
+        
+    Returns:
+        List of augmented (bev_image, yolo_labels) pairs
     """
     # Load configuration
     config = load_config(config_path)
     
-    # List bin files
-    bin_files = sorted([os.path.join(bin_dir, f) for f in os.listdir(bin_dir) if f.endswith('.bin')])
-    print(f"Found {len(bin_files)} bin files for augmentation")
+    # Create processor for BEV visualization
+    processor = PointCloudProcessor(config_path=config_path)
     
     # Create visualization directory
     vis_dir = os.path.join(output_dir, 'augmentation_visualizations')
     os.makedirs(vis_dir, exist_ok=True)
     
-    # Process each file
+    # Get sorted list of bin files
+    bin_files = sorted([os.path.join(bin_dir, f) for f in os.listdir(bin_dir) if f.endswith('.bin')])
+    
+    # Create augmented dataset items
     augmented_items = []
-    for bin_file in tqdm(bin_files, desc="Processing augmented dataset"):
+    
+    # Process each file with progress bar
+    for bin_file in tqdm(bin_files, desc='Processing augmented dataset'):
         try:
-            # Get label file
-            base_name = os.path.basename(bin_file).split('.')[0]
+            # Get base name for labels
+            base_name = os.path.splitext(os.path.basename(bin_file))[0]
             label_file = os.path.join(label_dir, f"{base_name}.txt")
+            
+            # Skip if label file doesn't exist
             if not os.path.exists(label_file):
-                print(f"Warning: Label file {label_file} not found, skipping {bin_file}")
+                print(f"Warning: Label file {label_file} not found, skipping.")
                 continue
-                
+            
+            # Create sample visualization directory
+            sample_vis_dir = os.path.join(vis_dir, base_name)
+            os.makedirs(sample_vis_dir, exist_ok=True)
+            
             # Load point cloud and labels
-            points = read_bin_file(bin_file)
-            labels = read_label_file(label_file)
+            points = np.fromfile(bin_file, dtype=np.float32).reshape(-1, 4)
+            labels = processor.load_labels(label_file)  # Using the processor's method
             
-            # Apply augmentations (with visualization)
-            augmented_samples = apply_robust_augmentations(points, labels, config)
+            # Create original BEV image
+            bev_image = processor.create_bev_image(points)
             
-            # Save visualization images for verification
-            for i, (bev_image, yolo_labels, visualization) in enumerate(augmented_samples):
-                # For training data, we only need the BEV image and YOLO labels
-                # Remove visualization from the training items
-                augmented_items.append((bev_image, yolo_labels))
+            # Create visualization with boxes for original
+            bev_with_boxes = bev_image.copy()
+            for label in labels:
+                if label['type'] == 'DontCare':
+                    continue
                 
-                # Save visualization image
-                augment_type = "original" if i == 0 else f"augment_{i}"
-                vis_filename = f"{base_name}_{augment_type}.png"
-                cv2.imwrite(os.path.join(vis_dir, vis_filename), visualization)
+                # Transform 3D box to BEV coordinates
+                corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                    label['dimensions'], label['location'], label['rotation_y']
+                )
+                
+                # Draw box on visualization image
+                bev_with_boxes = processor.draw_box_on_bev(
+                    bev_with_boxes, corners_bev, center_bev, label['type']
+                )
             
+            # Save original with boxes
+            original_vis_path = os.path.join(sample_vis_dir, f"{base_name}_original.png")
+            cv2.imwrite(original_vis_path, bev_with_boxes)
+            
+            # Convert labels to YOLO format for training
+            img_height, img_width = bev_image.shape[:2]
+            yolo_labels = convert_labels_to_yolo_format(labels, config, img_width, img_height)
+            
+            # Add original to dataset
+            augmented_items.append((bev_image, yolo_labels))
+            
+            # Apply rotation augmentations
+            rotations = [15, 30, 45, 60, 90, -15, -30, -45]
+            for angle in random.sample(rotations, min(3, len(rotations))):
+                try:
+                    # Rotate points and labels
+                    rotated_points, rotated_labels = rotate_points_and_labels(points, labels, angle)
+                    
+                    # Create BEV for rotated points
+                    rotated_bev = processor.create_bev_image(rotated_points)
+                    
+                    # Create visualization with boxes for rotated points
+                    rotated_bev_with_boxes = rotated_bev.copy()
+                    for label in rotated_labels:
+                        if label['type'] == 'DontCare':
+                            continue
+                        
+                        # Transform 3D box to BEV coordinates
+                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                            label['dimensions'], label['location'], label['rotation_y']
+                        )
+                        
+                        # Draw box on visualization image
+                        rotated_bev_with_boxes = processor.draw_box_on_bev(
+                            rotated_bev_with_boxes, corners_bev, center_bev, label['type']
+                        )
+                    
+                    # Save rotated visualization with boxes
+                    rot_vis_path = os.path.join(sample_vis_dir, f"{base_name}_rot{angle}.png")
+                    cv2.imwrite(rot_vis_path, rotated_bev_with_boxes)
+                    
+                    # Convert rotated labels to YOLO format for training
+                    rot_height, rot_width = rotated_bev.shape[:2]
+                    rotated_yolo_labels = convert_labels_to_yolo_format(
+                        rotated_labels, config, rot_width, rot_height
+                    )
+                    
+                    # Only add if we have valid labels
+                    if len(rotated_yolo_labels) > 0:
+                        # Add rotated to dataset
+                        augmented_items.append((rotated_bev, rotated_yolo_labels))
+                        
+                except Exception as e:
+                    print(f"Error processing rotation {angle} for {bin_file}: {str(e)}")
+            
+            # Apply lateral shift augmentations
+            lateral_shifts = [-2, -1, 1, 2]  # meters
+            for shift in random.sample(lateral_shifts, min(2, len(lateral_shifts))):
+                try:
+                    # Shift points and labels laterally
+                    shifted_points, shifted_labels = shift_lateral_points_and_labels(points, labels, shift)
+                    
+                    # Create BEV for shifted points
+                    shifted_bev = processor.create_bev_image(shifted_points)
+                    
+                    # Create visualization with boxes for shifted points
+                    shifted_bev_with_boxes = shifted_bev.copy()
+                    for label in shifted_labels:
+                        if label['type'] == 'DontCare':
+                            continue
+                        
+                        # Transform 3D box to BEV coordinates
+                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                            label['dimensions'], label['location'], label['rotation_y']
+                        )
+                        
+                        # Draw box on visualization image
+                        shifted_bev_with_boxes = processor.draw_box_on_bev(
+                            shifted_bev_with_boxes, corners_bev, center_bev, label['type']
+                        )
+                    
+                    # Save shifted visualization with boxes
+                    shift_vis_path = os.path.join(sample_vis_dir, f"{base_name}_lateral{shift}.png")
+                    cv2.imwrite(shift_vis_path, shifted_bev_with_boxes)
+                    
+                    # Convert shifted labels to YOLO format for training
+                    shift_height, shift_width = shifted_bev.shape[:2]
+                    shifted_yolo_labels = convert_labels_to_yolo_format(
+                        shifted_labels, config, shift_width, shift_height
+                    )
+                    
+                    # Only add if we have valid labels
+                    if len(shifted_yolo_labels) > 0:
+                        # Add shifted to dataset
+                        augmented_items.append((shifted_bev, shifted_yolo_labels))
+                        
+                except Exception as e:
+                    print(f"Error processing lateral shift {shift} for {bin_file}: {str(e)}")
+            
+            # Apply forward/backward shifts
+            vertical_shifts = [-4, -2, 2, 4]  # meters
+            for shift in random.sample(vertical_shifts, min(2, len(vertical_shifts))):
+                try:
+                    # Shift points and labels vertically
+                    shifted_points, shifted_labels = shift_vertical_points_and_labels(points, labels, shift)
+                    
+                    # Create BEV for shifted points
+                    shifted_bev = processor.create_bev_image(shifted_points)
+                    
+                    # Create visualization with boxes for shifted points
+                    shifted_bev_with_boxes = shifted_bev.copy()
+                    for label in shifted_labels:
+                        if label['type'] == 'DontCare':
+                            continue
+                        
+                        # Transform 3D box to BEV coordinates
+                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                            label['dimensions'], label['location'], label['rotation_y']
+                        )
+                        
+                        # Draw box on visualization image
+                        shifted_bev_with_boxes = processor.draw_box_on_bev(
+                            shifted_bev_with_boxes, corners_bev, center_bev, label['type']
+                        )
+                    
+                    # Save shifted visualization with boxes
+                    shift_vis_path = os.path.join(sample_vis_dir, f"{base_name}_vertical{shift}.png")
+                    cv2.imwrite(shift_vis_path, shifted_bev_with_boxes)
+                    
+                    # Convert shifted labels to YOLO format for training
+                    shift_height, shift_width = shifted_bev.shape[:2]
+                    shifted_yolo_labels = convert_labels_to_yolo_format(
+                        shifted_labels, config, shift_width, shift_height
+                    )
+                    
+                    # Only add if we have valid labels
+                    if len(shifted_yolo_labels) > 0:
+                        # Add shifted to dataset
+                        augmented_items.append((shifted_bev, shifted_yolo_labels))
+                        
+                except Exception as e:
+                    print(f"Error processing vertical shift {shift} for {bin_file}: {str(e)}")
+            
+            # Apply range view adaptations (zoom in on regions)
+            for i in range(2):  # Try 2 random range adaptations
+                try:
+                    # Get random range based on point distribution
+                    x_points = points[:, 0]
+                    y_points = points[:, 1]
+                    
+                    x_range = [max(0, np.percentile(x_points, 10)), min(50, np.percentile(x_points, 90))]
+                    y_range = [max(-25, np.percentile(y_points, 10)), min(25, np.percentile(y_points, 90))]
+                    
+                    # Filter points and labels by range
+                    filtered_points, filtered_labels = filter_points_by_range(
+                        points, labels, x_range, y_range
+                    )
+                    
+                    # Check if we have enough points and labels
+                    if len(filtered_points) < 100 or len(filtered_labels) < 1:
+                        continue
+                    
+                    # Create custom config for this range
+                    range_config = config.copy()
+                    range_config['x_range'] = x_range
+                    range_config['y_range'] = y_range
+                    
+                    # Create BEV for filtered points using range-adapted function
+                    range_bev = create_range_adapted_bev_image(filtered_points, range_config)
+                    
+                    # Create visualization with boxes for range-adapted BEV
+                    range_bev_with_boxes = range_bev.copy()
+                    for label in filtered_labels:
+                        if label['type'] == 'DontCare':
+                            continue
+                        
+                        # For range-adapted BEV we need to adjust coordinates
+                        # based on the new coordinate system
+                        x_min, x_max = range_config['x_range']
+                        y_min, y_max = range_config['y_range']
+                        width = int((x_max - x_min) / range_config['resolution'])
+                        height = int((y_max - y_min) / range_config['resolution'])
+                        
+                        # Create temp processor with modified config for correct conversion
+                        temp_config = range_config.copy()
+                        temp_config['fwd_range'] = range_config['x_range']
+                        temp_config['side_range'] = range_config['y_range']
+                        
+                        # This is a bit tricky as we need to adapt the model
+                        # Fix: Use coordinates relative to the range window
+                        # Here I'll do manual calculation for the BEV projection
+                        
+                        # Get the dimensions and location from the label
+                        dims, loc, rot = label['dimensions'], label['location'], label['rotation_y']
+                        
+                        # Adjust location relative to range window
+                        rel_x = loc[0] - x_min
+                        rel_y = loc[1] - y_min
+                        
+                        # Map to image coordinates
+                        img_x = int(rel_x / range_config['resolution'])
+                        img_y = int(height - (rel_y / range_config['resolution']))
+                        
+                        # Get length and width from dimensions
+                        l, h, w = dims
+                        
+                        # Calculate corners based on rotation
+                        corners = []
+                        for dx, dy in [(l/2, w/2), (l/2, -w/2), (-l/2, -w/2), (-l/2, w/2)]:
+                            # Rotate
+                            rx = dx * np.cos(rot) - dy * np.sin(rot)
+                            ry = dx * np.sin(rot) + dy * np.cos(rot)
+                            
+                            # Convert to image coordinates
+                            cx = int((rel_x + rx) / range_config['resolution'])
+                            cy = int(height - (rel_y + ry) / range_config['resolution'])
+                            
+                            corners.append((cx, cy))
+                        
+                        # Draw box
+                        for i in range(4):
+                            cv2.line(range_bev_with_boxes, corners[i], corners[(i+1)%4], (0, 0, 255), 2)
+                        
+                        # Draw center
+                        center = (img_x, img_y)
+                        cv2.circle(range_bev_with_boxes, center, 3, (0, 0, 255), -1)
+                        
+                        # Add label
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        cv2.putText(range_bev_with_boxes, label['type'], 
+                                  (center[0], center[1] - 10), 
+                                  font, 0.5, (0, 0, 255), 2)
+                    
+                    # Save range visualization with boxes
+                    range_vis_path = os.path.join(sample_vis_dir, f"{base_name}_range{i}.png")
+                    cv2.imwrite(range_vis_path, range_bev_with_boxes)
+                    
+                    # Convert range-adapted labels to YOLO format for training
+                    range_yolo_labels = convert_labels_to_yolo_format(
+                        filtered_labels, temp_config, width, height
+                    )
+                    
+                    # Only add if we have valid labels
+                    if len(range_yolo_labels) > 0:
+                        # Add range-adapted to dataset
+                        augmented_items.append((range_bev, range_yolo_labels))
+                        
+                except Exception as e:
+                    import traceback
+                    print(f"Error processing range {i} for {bin_file}: {str(e)}")
+                    print(traceback.format_exc())  # Print detailed stack trace
+        
         except Exception as e:
+            import traceback
             print(f"Error processing {bin_file} for augmentation: {str(e)}")
-            continue
+            print(traceback.format_exc())  # Print detailed stack trace
     
     print(f"Generated {len(augmented_items)} augmented dataset items in total")
     print(f"Saved visualization images to {vis_dir}")
+    
     return augmented_items
 
 def prepare_yolo_dataset(dataset_items, train_val_split=0.8, memory_dataset=False):
@@ -756,9 +868,9 @@ def main():
     # Step 2: Generate augmented dataset if enabled
     all_items = standard_items[:]
     if args.augmentations:
-        print("\nStep 2: Generating augmented BEV dataset with visualizations...")
+        print("\nStep 2: Generating augmented BEV dataset...")
         augmented_items = generate_augmented_dataset_with_visualization(args.bin_dir, args.label_dir, args.config_path, 
-                                             args.output_base, args.img_size, args.augmentation_factor)
+                                                args.output_base, args.img_size, args.augmentation_factor)
         all_items.extend(augmented_items)
     
     # Step 3: Prepare dataset (in memory, no saving to disk)
