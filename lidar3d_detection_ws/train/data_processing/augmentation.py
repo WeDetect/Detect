@@ -647,8 +647,3 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
         return bev_with_boxes, yolo_labels
     
     return bev_image, yolo_labels
-
-
-
-
-

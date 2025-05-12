@@ -1,5 +1,39 @@
 # Add import for OS environment variables at the top
 import os
+import sys
+
+# Fix import path with absolute paths
+current_dir = os.path.dirname(os.path.abspath(__file__))  # Get current directory
+parent_dir = os.path.dirname(current_dir)  # Get parent directory (train/)
+project_root = os.path.dirname(parent_dir)  # Get project root
+
+print(f"Current directory: {current_dir}")
+print(f"Parent directory: {parent_dir}")
+print(f"Project root: {project_root}")
+
+# Add both directories to the Python path
+sys.path.insert(0, parent_dir)  # Add train/ directory
+sys.path.insert(0, project_root)  # Add project root directory
+
+# Now print the path to verify
+print("Python path:")
+for p in sys.path:
+    print(f"  - {p}")
+
+# Import the exact same functions from preprocessing_0 as in train.py
+try:
+    from data_processing.preproccesing_0 import PointCloudProcessor, convert_labels_to_yolo_format
+    print("✅ Successfully imported PointCloudProcessor")
+except Exception as e:
+    print(f"❌ Import error: {e}")
+    # List files in the data_processing directory if it exists
+    data_processing_dir = os.path.join(parent_dir, "data_processing")
+    if os.path.exists(data_processing_dir):
+        print(f"Files in {data_processing_dir}:")
+        for file in os.listdir(data_processing_dir):
+            print(f"  - {file}")
+    else:
+        print(f"Directory not found: {data_processing_dir}")
 
 # Set headless mode for matplotlib and Qt
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -17,132 +51,7 @@ import argparse
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-
-# Define functions from preprocessing.py
-def load_config(config_path):
-    """Load configuration from YAML file"""
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
-
-def read_bin_file(bin_path):
-    """Read point cloud from binary file"""
-    points = np.fromfile(bin_path, dtype=np.float32).reshape(-1, 4)
-    return points
-
-def read_label_file(label_path):
-    """Read KITTI format label file"""
-    labels = []
-    if Path(label_path).exists():
-        with open(label_path, 'r') as f:
-            for line in f:
-                values = line.strip().split(' ')
-                labels.append({
-                    'type': values[0],
-                    'truncated': float(values[1]),
-                    'occluded': int(values[2]),
-                    'alpha': float(values[3]),
-                    'bbox': [float(x) for x in values[4:8]],
-                    'dimensions': [float(x) for x in values[8:11]],
-                    'location': [float(x) for x in values[11:14]],
-                    'rotation_y': float(values[14])
-                })
-    return labels
-
-def create_bev_image(points, config, labels=None):
-    """Create bird's eye view image from point cloud"""
-    # Get dimensions from config
-    Height = config['BEV_HEIGHT']
-    Width = config['BEV_WIDTH']
-    
-    # Create a copy of points to avoid modifying the original
-    points_copy = np.copy(points)
-    
-    # Filter points within boundaries
-    if 'boundary' in config:
-        mask = (points_copy[:, 0] >= config['boundary']['minX']) & (points_copy[:, 0] <= config['boundary']['maxX']) & \
-               (points_copy[:, 1] >= config['boundary']['minY']) & (points_copy[:, 1] <= config['boundary']['maxY']) & \
-               (points_copy[:, 2] >= config['boundary']['minZ']) & (points_copy[:, 2] <= config['boundary']['maxZ'])
-        points_copy = points_copy[mask]
-    
-    # Discretize Feature Map
-    points_copy[:, 0] = np.int_(np.floor(points_copy[:, 0] / config['DISCRETIZATION']))
-    points_copy[:, 1] = np.int_(np.floor(points_copy[:, 1] / config['DISCRETIZATION']) + Width / 2)
-    
-    # Ensure indices are within bounds
-    points_copy[:, 0] = np.clip(points_copy[:, 0], 0, Height - 1)
-    points_copy[:, 1] = np.clip(points_copy[:, 1], 0, Width - 1)
-    
-    # Sort points by height (z) and get unique x,y coordinates
-    sorted_indices = np.lexsort((-points_copy[:, 2], points_copy[:, 1], points_copy[:, 0]))
-    points_copy = points_copy[sorted_indices]
-    _, unique_indices, unique_counts = np.unique(points_copy[:, 0:2], axis=0, return_index=True, return_counts=True)
-    points_top = points_copy[unique_indices]
-    
-    # Create height, intensity and density maps
-    heightMap = np.zeros((Height, Width))
-    intensityMap = np.zeros((Height, Width))
-    densityMap = np.zeros((Height, Width))
-    
-    # Calculate max height for normalization
-    max_height = float(np.abs(config['boundary']['maxZ'] - config['boundary']['minZ']))
-    
-    # Fill the maps
-    valid_indices = (points_top[:, 0] < Height) & (points_top[:, 1] < Width)
-    heightMap[np.int_(points_top[valid_indices, 0]), np.int_(points_top[valid_indices, 1])] = points_top[valid_indices, 2] / max_height
-    
-    normalizedCounts = np.minimum(1.0, np.log(unique_counts + 1) / np.log(64))
-    intensityMap[np.int_(points_top[valid_indices, 0]), np.int_(points_top[valid_indices, 1])] = points_top[valid_indices, 3]
-    densityMap[np.int_(points_top[valid_indices, 0]), np.int_(points_top[valid_indices, 1])] = normalizedCounts[valid_indices]
-    
-    # Create RGB map
-    RGB_Map = np.zeros((3, Height, Width))
-    RGB_Map[2, :, :] = densityMap  # r_map
-    RGB_Map[1, :, :] = heightMap  # g_map
-    RGB_Map[0, :, :] = intensityMap  # b_map
-    
-    # Convert to image format
-    RGB_Map = np.transpose(RGB_Map, (1, 2, 0))
-    RGB_Map = (RGB_Map * 255).astype(np.uint8)
-    
-    return RGB_Map, points_copy
-
-# Define function to convert labels to YOLO format
-def convert_labels_to_yolo_format(labels, config, img_width, img_height):
-    yolo_labels = []
-    for label in labels:
-        if label['type'] == 'DontCare':
-            continue
-        elif label['type'] == 'Car':
-            class_id = 0
-        elif label['type'] == 'Pedestrian':
-            class_id = 1
-        elif label['type'] == 'Cyclist':
-            class_id = 2
-        elif label['type'] == 'Truck':
-            class_id = 3
-        else:
-            continue
-            
-        x, y, z = label['location']
-        h, w, l = label['dimensions']
-
-        x_bev = x / config['DISCRETIZATION']
-        y_bev = y / config['DISCRETIZATION'] + config['BEV_WIDTH'] / 2
-
-        x_center = x_bev / img_width
-        y_center = y_bev / img_height
-        width = w / config['DISCRETIZATION'] / img_width
-        height = l / config['DISCRETIZATION'] / img_height
-
-        # Make sure values are within valid range
-        x_center = max(0, min(1, x_center))
-        y_center = max(0, min(1, y_center))
-        width = max(0.01, min(1, width))  # Minimum 1% of image width
-        height = max(0.01, min(1, height))  # Minimum 1% of image height
-
-        yolo_labels.append([class_id, x_center, y_center, width, height])
-    
-    return yolo_labels
+from data_processing.preprocessing import load_config, read_bin_file, read_label_file
 
 # Constants
 DEFAULT_CONFIG = {
@@ -159,98 +68,169 @@ DEFAULT_CONFIG = {
 # Class names
 CLASS_NAMES = ['Car', 'Pedestrian', 'Cyclist', 'Truck']
 
-def convert_labels_to_boxes(labels, config, img_width, img_height):
-    """
-    Convert KITTI format labels to bounding boxes
-    
-    Args:
-        labels: Labels in KITTI format
-        config: Preprocessing configuration
-        img_width: Image width
-        img_height: Image height
-        
-    Returns:
-        List of (class_id, box) tuples where box is (x1, y1, x2, y2)
-    """
-    boxes = []
-    for label in labels:
-        if label['type'] == 'DontCare':
-            continue
-        elif label['type'] == 'Car':
-            class_id = 0
-        elif label['type'] == 'Pedestrian':
-            class_id = 1
-        elif label['type'] == 'Cyclist':
-            class_id = 2
-        elif label['type'] == 'Truck':
-            class_id = 3
-        else:
-            continue
-            
-        x, y, z = label['location']
-        h, w, l = label['dimensions']
-
-        # Convert to BEV coordinates
-        x_bev = x / config['DISCRETIZATION']
-        y_bev = y / config['DISCRETIZATION'] + img_width / 2
-
-        # Calculate width and height in pixels
-        width_px = w / config['DISCRETIZATION']
-        height_px = l / config['DISCRETIZATION']
-        
-        # Calculate box coordinates
-        x1 = int(x_bev - width_px/2)
-        y1 = int(y_bev - height_px/2)
-        x2 = int(x_bev + width_px/2)
-        y2 = int(y_bev + height_px/2)
-        
-        # Make sure box is within image bounds
-        x1 = max(0, min(img_width-1, x1))
-        y1 = max(0, min(img_height-1, y1))
-        x2 = max(0, min(img_width-1, x2))
-        y2 = max(0, min(img_height-1, y2))
-        
-        # Only add box if it has positive area
-        if x2 > x1 and y2 > y1:
-            boxes.append((class_id, (x1, y1, x2, y2)))
-    
-    return boxes
-
 def calculate_iou(box1, box2):
     """
-    Calculate IoU between two boxes
+    Calculate IoU between two bounding boxes
     
     Args:
-        box1: First box (x1, y1, x2, y2)
-        box2: Second box (x1, y1, x2, y2)
-        
+        box1: (x1, y1, x2, y2) format
+        box2: (x1, y1, x2, y2) format
+    
     Returns:
-        IoU score
+        IoU value
     """
-    # Get coordinates of intersection rectangle
-    x1 = max(box1[0], box2[0])
-    y1 = max(box1[1], box2[1])
-    x2 = min(box1[2], box2[2])
-    y2 = min(box1[3], box2[3])
+    # Extract coordinates
+    x1_1, y1_1, x2_1, y2_1 = box1
+    x1_2, y1_2, x2_2, y2_2 = box2
     
-    # Calculate area of intersection rectangle
-    intersection_area = max(0, x2 - x1) * max(0, y2 - y1)
+    # Calculate area of each box
+    area1 = (x2_1 - x1_1) * (y2_1 - y1_1)
+    area2 = (x2_2 - x1_2) * (y2_2 - y1_2)
     
-    # Calculate area of both boxes
-    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    # Calculate coordinates of intersection
+    x1_i = max(x1_1, x1_2)
+    y1_i = max(y1_1, y1_2)
+    x2_i = min(x2_1, x2_2)
+    y2_i = min(y2_1, y2_2)
     
-    # Calculate union area
-    union_area = box1_area + box2_area - intersection_area
+    # Check if boxes overlap
+    if x2_i <= x1_i or y2_i <= y1_i:
+        return 0.0
+    
+    # Calculate area of intersection
+    area_i = (x2_i - x1_i) * (y2_i - y1_i)
     
     # Calculate IoU
-    if union_area == 0:
-        return 0
+    iou = area_i / (area1 + area2 - area_i)
     
-    return intersection_area / union_area
+    return iou
+
+def yolo_to_bbox(yolo_box, img_width, img_height):
+    """
+    Convert YOLO format box to (x1,y1,x2,y2) format
+    
+    Args:
+        yolo_box: [class_id, x_center, y_center, width, height]
+        img_width: Image width
+        img_height: Image height
+    
+    Returns:
+        (x1, y1, x2, y2) tuple
+    """
+    class_id, x_center, y_center, width, height = yolo_box
+    
+    # Denormalize
+    x_center *= img_width
+    y_center *= img_height
+    width *= img_width
+    height *= img_height
+    
+    # Calculate corners
+    x1 = int(x_center - width / 2)
+    y1 = int(y_center - height / 2)
+    x2 = int(x_center + width / 2)
+    y2 = int(y_center + height / 2)
+    
+    return (x1, y1, x2, y2)
+
+def visualize_detection_results(bev_image, gt_boxes, pred_boxes):
+    """
+    Visualize detection results with ground truth and predictions
+    using PointCloudProcessor to draw boxes exactly like in preprocessing_0.py
+    
+    Args:
+        bev_image: BEV image
+        gt_boxes: List of ground truth boxes [(class_id, bbox, conf), ...]
+        pred_boxes: List of predicted boxes [(class_id, bbox, conf), ...]
+    
+    Returns:
+        Visualization image
+    """
+    # Create a processor object for visualization
+    processor = PointCloudProcessor()
+    
+    # Copy images for drawing
+    gt_vis = bev_image.copy()
+    pred_vis = bev_image.copy()
+    
+    # Draw ground truth boxes
+    for cls_id, bbox, _ in gt_boxes:
+        # Convert bbox format back to corners for visualization
+        x1, y1, x2, y2 = bbox
+        
+        # Calculate center and corners in BEV format
+        center_bev = ((x1 + x2) // 2, (y1 + y2) // 2)
+        corners_bev = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+        
+        # Use same draw method as in training
+        obj_type = CLASS_NAMES[cls_id]
+        gt_vis = processor.draw_filled_box_on_bev(gt_vis, corners_bev, center_bev, obj_type)
+    
+    # Draw predicted boxes
+    for cls_id, bbox, conf in pred_boxes:
+        # Convert bbox format back to corners for visualization
+        x1, y1, x2, y2 = bbox
+        
+        # Calculate center and corners in BEV format
+        center_bev = ((x1 + x2) // 2, (y1 + y2) // 2)
+        corners_bev = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+        
+        # Use same draw method as in training
+        obj_type = CLASS_NAMES[cls_id]
+        pred_vis = processor.draw_filled_box_on_bev(pred_vis, corners_bev, center_bev, obj_type)
+        
+        # Add confidence score
+        cv2.putText(pred_vis, f"{conf:.2f}", 
+                  (center_bev[0], center_bev[1] + 15), 
+                  cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    
+    # Add titles
+    title_height = 40
+    gt_title = "Ground Truth"
+    pred_title = "Predictions"
+    
+    # Create title bars
+    gt_title_bar = np.ones((title_height, gt_vis.shape[1], 3), dtype=np.uint8) * 255
+    pred_title_bar = np.ones((title_height, pred_vis.shape[1], 3), dtype=np.uint8) * 255
+    
+    # Add text to title bars
+    cv2.putText(gt_title_bar, gt_title, 
+              (gt_title_bar.shape[1]//2 - 80, title_height//2 + 5), 
+              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+    
+    cv2.putText(pred_title_bar, pred_title, 
+              (pred_title_bar.shape[1]//2 - 60, title_height//2 + 5), 
+              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+    
+    # Combine with title bars
+    gt_vis_with_title = np.vstack([gt_title_bar, gt_vis])
+    pred_vis_with_title = np.vstack([pred_title_bar, pred_vis])
+    
+    # Create separator
+    separator_width = 20
+    separator = np.ones((max(gt_vis_with_title.shape[0], pred_vis_with_title.shape[0]), 
+                        separator_width, 3), dtype=np.uint8) * 255
+    
+    # Combine horizontally
+    combined_image = np.hstack([gt_vis_with_title, separator, pred_vis_with_title])
+    
+    # Add overall title
+    overall_title = f"BEV LiDAR Detection Results"
+    cv2.putText(combined_image, overall_title, 
+              (combined_image.shape[1]//2 - 200, 30), 
+              cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+    
+    return combined_image
+
+def create_processor():
+    """Create and configure a PointCloudProcessor instance"""
+    config_path = "/lidar3d_detection_ws/train/config/preprocessing_config.yaml"
+    data_config_path = "/lidar3d_detection_ws/train/config/data.yaml"
+    processor = PointCloudProcessor(config_path, data_config_path)
+    return processor
 
 def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir, 
-                  num_samples=5, conf_threshold=0.25, iou_threshold=0.45, save_images=True):
+                   num_samples=5, conf_threshold=0.25, iou_threshold=0.45, save_images=True):
     """
     Evaluate YOLO model on BEV LiDAR data
     
@@ -260,66 +240,101 @@ def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir,
         label_dir: Directory with label .txt files
         config_path: Path to preprocessing config YAML
         output_dir: Directory to save evaluation results
-        num_samples: Number of samples to evaluate (randomly selected)
-        conf_threshold: Confidence threshold for predictions
-        iou_threshold: IoU threshold for matching boxes
+        num_samples: Number of samples to evaluate
+        conf_threshold: Confidence threshold
+        iou_threshold: IoU threshold
         save_images: Whether to save visualization of detection results
     
     Returns:
-        Evaluation metrics dictionary
+        Dictionary with evaluation metrics
     """
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
     # Load model
-    print(f"Loading model from {model_path}")
     model = YOLO(model_path)
+    print(f"Loaded model from {model_path}")
     
     # Load config
     config = load_config(config_path)
+    print(f"Loaded config from {config_path}")
     
-    # Get all bin files
-    bin_files = list(Path(bin_dir).glob("*.bin"))
+    # Create PointCloudProcessor for consistent preprocessing - exactly the same as in train.py
+    processor = create_processor()
     
-    # Randomly select files if too many
+    # Update parameters from config is not needed since it's loaded in the constructor
+    
+    # Set image dimensions based on config
+    processor.x_max = int((processor.fwd_range[1] - processor.fwd_range[0]) / processor.resolution)
+    processor.y_max = int((processor.side_range[1] - processor.side_range[0]) / processor.resolution)
+    processor.z_max = int((processor.height_range[1] - processor.height_range[0]) / processor.z_resolution)
+    
+    # List bin files
+    bin_dir = Path(bin_dir)
+    bin_files = sorted(list(bin_dir.glob('*.bin')))
+    
+    # Select random samples if more files than requested
     if len(bin_files) > num_samples:
         bin_files = random.sample(bin_files, num_samples)
+    else:
+        num_samples = len(bin_files)
+    
+    print(f"Evaluating on {num_samples} samples")
     
     # Initialize metrics
-    class_metrics = {cls_name: {'TP': 0, 'FP': 0, 'FN': 0} for cls_name in CLASS_NAMES}
     total_objects = 0
     detected_objects = 0
+    class_metrics = {name: {'TP': 0, 'FP': 0, 'FN': 0} for name in CLASS_NAMES}
     
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Evaluate each file
-    for i, bin_file in enumerate(tqdm(bin_files, desc="Evaluating model")):
-        print(f"\nProcessing {bin_file.name}...")
-        
+    # Process each sample
+    for bin_file in tqdm(bin_files, desc="Evaluating samples"):
         # Get corresponding label file
         label_file = Path(label_dir) / f"{bin_file.stem}.txt"
+        
         if not label_file.exists():
-            print(f"Label file {label_file} not found, skipping")
+            print(f"Warning: Label file {label_file} not found, skipping...")
             continue
         
-        # Load point cloud and labels
-        points = read_bin_file(bin_file)
-        labels = read_label_file(label_file)
+        # Process using the same method as in train.py
+        bev_image, yolo_labels = processor.process_point_cloud(str(bin_file), str(label_file))
         
-        # Create BEV image without annotations for model input
-        bev_image, _ = create_bev_image(points, config)
+        # Run inference (bev_image is already correctly oriented)
+        results = model.predict(bev_image, conf=conf_threshold, iou=iou_threshold, verbose=False)
         
-        # Convert labels to boxes for evaluation
-        gt_boxes = convert_labels_to_boxes(labels, config, bev_image.shape[1], bev_image.shape[0])
+        # Convert ground truth labels to YOLO format
+        # First transform 3D boxes to BEV coordinates
+        gt_boxes = []
+        for obj in yolo_labels:
+            if obj['type'] not in CLASS_NAMES:
+                continue
+                
+            # Process only care about valid classes
+            class_id = CLASS_NAMES.index(obj['type'])
+            
+            # Transform box to BEV
+            corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                obj['dimensions'], obj['location'], obj['rotation_y']
+            )
+            
+            # Get YOLO format label
+            yolo_label_str = processor.create_yolo_label(corners_bev, obj['type'], bev_image.shape[:2])
+            
+            # Parse YOLO label
+            parts = yolo_label_str.split()
+            yolo_box = [int(parts[0])] + [float(p) for p in parts[1:]]
+            
+            # Convert YOLO box to (x1,y1,x2,y2) format
+            bbox = yolo_to_bbox(yolo_box, bev_image.shape[1], bev_image.shape[0])
+            
+            gt_boxes.append((class_id, bbox, 1.0))  # Add confidence of 1.0 for GT
+            
+            # Count total objects by class
+            total_objects += 1
+            class_metrics[obj['type']]['FN'] += 1  # Assume false negative initially
         
-        # Count total objects
-        total_objects += len(gt_boxes)
-        for cls_id, _ in gt_boxes:
-            class_metrics[CLASS_NAMES[cls_id]]['FN'] += 1  # Assume FN first
-        
-        # Run inference
-        results = model(bev_image, conf=conf_threshold, iou=iou_threshold)
-        
-        # Extract predictions
+        # Parse detection results
         pred_boxes = []
+        
         for result in results:
             boxes = result.boxes
             for box in boxes:
@@ -338,7 +353,7 @@ def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir,
             best_gt_idx = -1
             
             # Find best matching ground truth box
-            for gt_idx, (gt_cls_id, gt_box) in enumerate(gt_boxes):
+            for gt_idx, (gt_cls_id, gt_box, _) in enumerate(gt_boxes):
                 # Only match with same class
                 if gt_cls_id != p_cls_id:
                     continue

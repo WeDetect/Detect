@@ -1,9 +1,17 @@
-evaluate command:
- python3 train/models/evaluate.py   --data_dir /lidar3d_detection_ws/data/innoviz   --label_dir /lidar3d_detection_ws/labels   --config_path /lidar3d_detection_ws/train/config/preprocessing_config.yaml   --classes_json /lidar3d_detection_ws/labels/_classes.json   --weights /lidar3d_detection_ws/train/output/yolo_bev_final.pth   --output_dir /lidar3d_detection_ws/train/output/eval   --conf_thres 0.7
+מודל רגיל ללא אוגמנטציות:
+   python3 train/models/train.py --augmentations False --transfer_learning False
 
+מודל רגיל עם אוגמנטציות:
+   python3 train/models/train.py --augmentations True --transfer_learning False
 
-train command with augmentations:
-python3 train/main.py --epochs 20 --learning_rate 0.001 --batch_size 2 --data_dir /lidar3d_detection_ws/data/innoviz --label_dir /lidar3d_detection_ws/labels --config_path /lidar3d_detection_ws/train/config/preprocessing_config.yaml --classes_json /lidar3d_detection_ws/labels/_classes.json --output_dir /lidar3d_detection_ws/train/output
+מודל עם Transfer Learning ללא אוגמנטציות:
+   python3 train/models/train.py --augmentations False --transfer_learning True --unfreeze_layers 20
 
-train command without augmentations:
-python3 train/main.py --epochs 20 --learning_rate 0.001 --batch_size 2 --data_dir /lidar3d_detection_ws/data/innoviz --label_dir /lidar3d_detection_ws/labels --config_path /lidar3d_detection_ws/train/config/preprocessing_config.yaml --classes_json /lidar3d_detection_ws/labels/_classes.json --output_dir /lidar3d_detection_ws/train/output --max_augmentations 0
+4. מודל עם Transfer Learning ועם אוגמנטציות:
+   python3 train/models/train.py --augmentations True --transfer_learning True --unfreeze_layers 20
+
+המשך אימון ממודל קיים ללא אוגמנטציות:
+   python3 train/models/train.py --augmentations False --continue_from /lidar3d_detection_ws/train/dataset/output/bev_transfer_final.pt
+
+6. המשך אימון ממודל קיים עם אוגמנטציות:
+   python3 train/models/train.py --augmentations True --continue_from /lidar3d_detection_ws/train/dataset/output/bev_transfer_final.pt

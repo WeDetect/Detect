@@ -26,6 +26,7 @@ from data_processing.augmentation import (rotate_points_and_labels,
                                          filter_points_by_range,
                                          create_range_adapted_bev_image)
 from models.yolo_bev import create_full_trainable_model, create_transfer_learning_model
+from data_processing.preproccesing_0 import PointCloudProcessor
 
 # Global configuration
 DEFAULT_CONFIG = {
@@ -198,50 +199,224 @@ def apply_visualize_style_augmentations(points, labels, config):
     print(f"Created {len(augmented_data)} augmented data items")
     return augmented_data
 
-def generate_augmented_dataset(bin_dir, label_dir, config_path, output_dir, img_size, augmentation_factor=3):
+def apply_robust_augmentations(points, labels, config):
     """
-    Generate augmented BEV dataset
+    Create augmentations for training using proven augmentation techniques
     
     Args:
-        bin_dir: Directory with .bin files
-        label_dir: Directory with label .txt files
-        config_path: Path to preprocessing config YAML
-        output_dir: Directory to save output data
-        img_size: Image size for output
-        augmentation_factor: Number of augmented samples per original
+        points: Point cloud data
+        labels: Label data
+        config: Configuration dictionary
         
     Returns:
-        List of augmented (bev_image, yolo_labels) pairs
+        List of augmented (bev_image, yolo_labels, visualization_image) tuples
     """
-    config = load_config(config_path)
-    augmented_items = []
+    augmented_data = []
+    processor = PointCloudProcessor(config_path="/lidar3d_detection_ws/train/config/preprocessing_config.yaml")
     
-    bin_files = sorted(Path(bin_dir).glob("*.bin"))
+    # Get original BEV for comparison
+    original_bev = processor.create_bev_image(points)
+    original_yolo = convert_labels_to_yolo_format(labels, config, 
+                                           original_bev.shape[1], original_bev.shape[0])
+    
+    # Original visualization with bounding boxes
+    original_vis = original_bev.copy()
+    for label in labels:
+        if label['type'] == 'DontCare':
+            continue
+            
+        corners_bev, center_bev = processor.transform_3d_box_to_bev(
+            label['dimensions'], label['location'], label['rotation_y']
+        )
+        
+        original_vis = processor.draw_box_on_bev(original_vis, corners_bev, center_bev, label['type'])
+    
+    # Add original with visualization
+    augmented_data.append((original_bev, original_yolo, original_vis))
+    
+    # 1. Rotations (45-degree increments)
+    rotation_angles = [45, 90, 135, 180, 225, 270, 315]
+    
+    for angle in rotation_angles:
+        # Apply rotation using the tested function
+        rotated_points, rotated_labels = rotate_points_and_labels(points.copy(), labels.copy(), angle)
+        
+        # Generate BEV image from augmented points
+        rotated_bev = processor.create_bev_image(rotated_points)
+        
+        # Create YOLO labels for training
+        img_height, img_width = rotated_bev.shape[:2]
+        rotated_yolo = convert_labels_to_yolo_format(rotated_labels, config, img_width, img_height)
+        
+        # Create visualization with boxes for verification
+        rotated_vis = rotated_bev.copy()
+        for label in rotated_labels:
+            if label['type'] == 'DontCare':
+                continue
+                
+            corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                label['dimensions'], label['location'], label['rotation_y']
+            )
+            
+            rotated_vis = processor.draw_box_on_bev(rotated_vis, corners_bev, center_bev, label['type'])
+        
+        augmented_data.append((rotated_bev, rotated_yolo, rotated_vis))
+    
+    # 2. Vertical shifts
+    height_shifts = [-1.0, -0.5, 0.5, 1.0]
+    
+    for shift in height_shifts:
+        # Apply vertical shift using tested function
+        shifted_points, shifted_labels = shift_vertical_points_and_labels(points.copy(), labels.copy(), shift)
+        
+        # Generate BEV image from shifted points
+        shifted_bev = processor.create_bev_image(shifted_points)
+        
+        # Create YOLO labels for training
+        img_height, img_width = shifted_bev.shape[:2]
+        shifted_yolo = convert_labels_to_yolo_format(shifted_labels, config, img_width, img_height)
+        
+        # Create visualization with boxes for verification
+        shifted_vis = shifted_bev.copy()
+        for label in shifted_labels:
+            if label['type'] == 'DontCare':
+                continue
+                
+            corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                label['dimensions'], label['location'], label['rotation_y']
+            )
+            
+            shifted_vis = processor.draw_box_on_bev(shifted_vis, corners_bev, center_bev, label['type'])
+        
+        augmented_data.append((shifted_bev, shifted_yolo, shifted_vis))
+    
+    # 3. Lateral shifts
+    lateral_shifts = [-2.0, -1.0, 1.0, 2.0]
+    
+    for shift in lateral_shifts:
+        # Apply lateral shift using tested function
+        shifted_points, shifted_labels = shift_lateral_points_and_labels(points.copy(), labels.copy(), shift)
+        
+        # Generate BEV image from shifted points
+        shifted_bev = processor.create_bev_image(shifted_points)
+        
+        # Create YOLO labels for training
+        img_height, img_width = shifted_bev.shape[:2]
+        shifted_yolo = convert_labels_to_yolo_format(shifted_labels, config, img_width, img_height)
+        
+        # Create visualization with boxes for verification
+        shifted_vis = shifted_bev.copy()
+        for label in shifted_labels:
+            if label['type'] == 'DontCare':
+                continue
+                
+            corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                label['dimensions'], label['location'], label['rotation_y']
+            )
+            
+            shifted_vis = processor.draw_box_on_bev(shifted_vis, corners_bev, center_bev, label['type'])
+        
+        augmented_data.append((shifted_bev, shifted_yolo, shifted_vis))
+    
+    # 4. Distance scaling
+    scale_factors = [0.8, 0.9, 1.1, 1.2]
+    
+    for scale in scale_factors:
+        # Apply distance scaling using tested function
+        scaled_points, scaled_labels = processor.scale_distance_points_and_labels(points.copy(), labels.copy(), scale)
+        
+        # Generate BEV image from scaled points
+        scaled_bev = processor.create_bev_image(scaled_points)
+        
+        # Create YOLO labels for training
+        img_height, img_width = scaled_bev.shape[:2]
+        scaled_yolo = convert_labels_to_yolo_format(scaled_labels, config, img_width, img_height)
+        
+        # Create visualization with boxes for verification
+        scaled_vis = scaled_bev.copy()
+        for label in scaled_labels:
+            if label['type'] == 'DontCare':
+                continue
+                
+            corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                label['dimensions'], label['location'], label['rotation_y']
+            )
+            
+            scaled_vis = processor.draw_box_on_bev(scaled_vis, corners_bev, center_bev, label['type'])
+        
+        augmented_data.append((scaled_bev, scaled_yolo, scaled_vis))
+    
+    # 5. Range adaptations (zoom into specific regions)
+    range_configurations = [
+        (0, 10, -5, 5),  # Close range - 10m forward, 5m to each side
+        (10, 20, -10, 10),  # Mid range
+        (5, 15, -7, 7),  # Another variation
+    ]
+    
+    for x_min, x_max, y_min, y_max in range_configurations:
+        # Create adapted BEV using tested function
+        adapted_bev, adapted_yolo = create_range_adapted_bev_image(
+            points, labels, x_min, x_max, y_min, y_max, config
+        )
+        
+        # Only add if we got valid labels in this region
+        if len(adapted_yolo) > 0:
+            # The visualization already has boxes drawn on it from create_range_adapted_bev_image
+            augmented_data.append((adapted_bev, adapted_yolo, adapted_bev.copy()))
+    
+    print(f"Generated {len(augmented_data)} augmented samples (including original)")
+    return augmented_data
+
+def generate_augmented_dataset_with_visualization(bin_dir, label_dir, config_path, output_dir, img_size, augmentation_factor=3):
+    """
+    Generate augmented dataset from bin files and labels with visualization images
+    """
+    # Load configuration
+    config = load_config(config_path)
+    
+    # List bin files
+    bin_files = sorted([os.path.join(bin_dir, f) for f in os.listdir(bin_dir) if f.endswith('.bin')])
     print(f"Found {len(bin_files)} bin files for augmentation")
     
-    for i, bin_file in enumerate(tqdm(bin_files, desc="Processing augmented dataset")):
-        label_file = Path(label_dir) / f"{bin_file.stem}.txt"
-        
-        # Skip if label file doesn't exist
-        if not label_file.exists():
-            print(f"Warning: {label_file} not found, skipping {bin_file}")
-            continue
-        
-        # Load point cloud and labels
-        points = read_bin_file(bin_file)
-        labels = read_label_file(label_file)
-        
-        # Apply augmentations
-        augmented_data = apply_visualize_style_augmentations(points, labels, config)
-        
-        # Store all augmentations in memory
-        augmented_items.extend(augmented_data)
-        
-        # Debug information for first few files
-        if i < 5:
-            print(f"Generated {len(augmented_data)} augmentations for item {i}: {bin_file.stem}")
+    # Create visualization directory
+    vis_dir = os.path.join(output_dir, 'augmentation_visualizations')
+    os.makedirs(vis_dir, exist_ok=True)
     
-    print(f"Generated {len(augmented_items)} augmented dataset items")
+    # Process each file
+    augmented_items = []
+    for bin_file in tqdm(bin_files, desc="Processing augmented dataset"):
+        try:
+            # Get label file
+            base_name = os.path.basename(bin_file).split('.')[0]
+            label_file = os.path.join(label_dir, f"{base_name}.txt")
+            if not os.path.exists(label_file):
+                print(f"Warning: Label file {label_file} not found, skipping {bin_file}")
+                continue
+                
+            # Load point cloud and labels
+            points = read_bin_file(bin_file)
+            labels = read_label_file(label_file)
+            
+            # Apply augmentations (with visualization)
+            augmented_samples = apply_robust_augmentations(points, labels, config)
+            
+            # Save visualization images for verification
+            for i, (bev_image, yolo_labels, visualization) in enumerate(augmented_samples):
+                # For training data, we only need the BEV image and YOLO labels
+                # Remove visualization from the training items
+                augmented_items.append((bev_image, yolo_labels))
+                
+                # Save visualization image
+                augment_type = "original" if i == 0 else f"augment_{i}"
+                vis_filename = f"{base_name}_{augment_type}.png"
+                cv2.imwrite(os.path.join(vis_dir, vis_filename), visualization)
+            
+        except Exception as e:
+            print(f"Error processing {bin_file} for augmentation: {str(e)}")
+            continue
+    
+    print(f"Generated {len(augmented_items)} augmented dataset items in total")
+    print(f"Saved visualization images to {vis_dir}")
     return augmented_items
 
 def prepare_yolo_dataset(dataset_items, train_val_split=0.8, memory_dataset=False):
@@ -556,7 +731,7 @@ def main():
     parser.add_argument("--img_size", type=int, default=DEFAULT_CONFIG['img_size'], help="Image size for YOLOv5")
     parser.add_argument("--epochs", type=int, default=DEFAULT_CONFIG['epochs'], help="Number of training epochs")
     parser.add_argument("--batch", type=int, default=DEFAULT_CONFIG['batch_size'], help="Batch size for training")
-    parser.add_argument("--augmentations", type=bool, default=DEFAULT_CONFIG['augmentations'], help="Use augmentations")
+    parser.add_argument("--augmentations", action="store_true", help="Use augmentations")
     parser.add_argument("--augmentation_factor", type=int, default=DEFAULT_CONFIG['augmentation_factor'], help="Augmentation factor")
     parser.add_argument("--device", default="auto", help="Training device (cpu/cuda:0/auto)")
     parser.add_argument("--transfer_learning", action="store_true", help="Use transfer learning")
@@ -581,9 +756,9 @@ def main():
     # Step 2: Generate augmented dataset if enabled
     all_items = standard_items[:]
     if args.augmentations:
-        print("\nStep 2: Generating augmented BEV dataset...")
-        augmented_items = generate_augmented_dataset(args.bin_dir, args.label_dir, args.config_path, 
-                                                args.output_base, args.img_size, args.augmentation_factor)
+        print("\nStep 2: Generating augmented BEV dataset with visualizations...")
+        augmented_items = generate_augmented_dataset_with_visualization(args.bin_dir, args.label_dir, args.config_path, 
+                                             args.output_base, args.img_size, args.augmentation_factor)
         all_items.extend(augmented_items)
     
     # Step 3: Prepare dataset (in memory, no saving to disk)
