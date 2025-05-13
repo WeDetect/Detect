@@ -1,0 +1,15 @@
+אימון כל הדטה עם גואמנטציות מההתחלה :
+python3 train/models/train.py --all_data_from_scratch --epochs 100 --batch 16 --device cuda:0 --augmentations
+אימון כל הדטה מהתחלה ללא אוגמנטציות:
+python3 train/models/train.py --all_data_from_scratch --epochs 100 --batch 16
+
+
+
+אימון כל הדטה עם גואמנטציות ממקום מסוים :
+python3 train/models/train.py --continue_training --checkpoint_path /lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/last.pt --epochs 50 --batch 8 --device cpu --augmentations
+
+
+ממקום מסוים ללא אוגמנטציות:
+python3 train/models/train.py --continue_training --checkpoint_path /lidar3d_detection_ws/train/output/best.pt --epochs 50 --batch 8 --device cpu
+
+
