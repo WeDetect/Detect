@@ -81,3 +81,6 @@ train/output/**
 # Ignore YOLO dataset and what inside it
 train/dataset/
 train/dataset/**
+
+yolo11n.pt
+yolo11n_best.pt
