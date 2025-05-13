@@ -315,9 +315,9 @@ def visualize_augmentations():
     # Create BEV image of original point cloud for comparison
     original_bev, _ = processor.process_point_cloud(bin_file, label_file)
     
+    demonstrate_rotation(points, labels, processor, original_bev, config, bin_file, label_file)
     demonstrate_range_filtering(points, labels, processor, original_bev, config, bin_file, label_file)
     # Show different augmentations
-    demonstrate_rotation(points, labels, processor, original_bev, config, bin_file, label_file)
     demonstrate_distance_scaling(points, labels, processor, original_bev, config, bin_file, label_file)
     demonstrate_lateral_shift(points, labels, processor, original_bev, config, bin_file, label_file)
     demonstrate_vertical_shift(points, labels, processor, original_bev, config, bin_file, label_file)
@@ -328,7 +328,8 @@ def visualize_augmentations():
 
 def demonstrate_rotation(points, labels, processor, original_bev, config, bin_file, label_file):
     """Demonstrate rotation augmentation with different angles"""
-    rotation_angles = [0, 45, 90, 180, 270]
+    # עדכון הזוויות לפי הבקשה
+    rotation_angles = [-45, -30, -15, 15, 30, 45]
     
     print("\nDemonstrating rotation augmentation...")
     
@@ -338,10 +339,6 @@ def demonstrate_rotation(points, labels, processor, original_bev, config, bin_fi
     cv2.resizeWindow(window_name, 1200, 600)
     
     for angle in rotation_angles:
-        # Skip 0 degrees (original)
-        if angle == 0:
-            continue
-            
         print(f"  Rotating by {angle} degrees")
         
         # Apply rotation
@@ -355,11 +352,50 @@ def demonstrate_rotation(points, labels, processor, original_bev, config, bin_fi
         temp_label = "/tmp/rotated_labels.txt"
         save_label_file(rotated_labels, temp_label)
         
-        # Create BEV image from augmented points
-        augmented_bev, _ = processor.process_point_cloud(temp_bin, temp_label)
+        # Instead of using process_point_cloud, let's create our own BEV image with boxes
+        # This will bypass any issues in the processor's transform_3d_box_to_bev function
+        bev_image = processor.create_bev_image(rotated_points)
+        bev_with_boxes = bev_image.copy()
+        
+        # Draw boxes directly
+        for label in rotated_labels:
+            if label['type'] == 'DontCare':
+                continue
+                
+            # Transform 3D box to BEV using our fixed function
+            corners_bev, center_bev = transform_3d_box_to_bev_fixed(
+                label['dimensions'],
+                label['location'],
+                label['rotation_y'],
+                processor.resolution,
+                processor.side_range,
+                processor.fwd_range
+            )
+            
+            # Draw box on the image
+            color = processor.colors.get(label['type'], (255, 255, 255))
+            
+            # Draw filled polygon with transparency
+            corners_np = np.array(corners_bev, dtype=np.int32)
+            overlay = bev_with_boxes.copy()
+            cv2.fillPoly(overlay, [corners_np], color)
+            
+            # Apply the overlay with transparency
+            alpha = 0.3  # Transparency factor
+            cv2.addWeighted(overlay, alpha, bev_with_boxes, 1 - alpha, 0, bev_with_boxes)
+            
+            # Draw outline
+            for i in range(4):
+                cv2.line(bev_with_boxes, 
+                         corners_bev[i], 
+                         corners_bev[(i+1)%4], 
+                         color, 2)
+            
+            # Draw center
+            cv2.circle(bev_with_boxes, center_bev, 3, color, -1)
         
         # Create combined visualization
-        combined_vis = np.hstack((original_bev, augmented_bev))
+        combined_vis = np.hstack((original_bev, bev_with_boxes))
         
         # Add text labels
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -383,10 +419,53 @@ def demonstrate_rotation(points, labels, processor, original_bev, config, bin_fi
         if key == 27:
             cv2.destroyWindow(window_name)
             return
-
+    
     # Close window after all rotations
     cv2.destroyWindow(window_name)
 
+def transform_3d_box_to_bev_fixed(dimensions, location, rotation_y, resolution, side_range, fwd_range):
+    """Fixed version of transform_3d_box_to_bev that correctly handles rotations"""
+    # Extract dimensions
+    h, w, l = dimensions
+    x, y, z = location
+    
+    # Calculate 3D box corners
+    corners_3d = np.array([
+        [l/2, w/2, 0],   # front-right
+        [l/2, -w/2, 0],  # front-left
+        [-l/2, -w/2, 0], # back-left
+        [-l/2, w/2, 0]   # back-right
+    ])
+    
+    # Rotation matrix
+    R = np.array([
+        [np.cos(rotation_y), 0, np.sin(rotation_y)],
+        [0, 1, 0],
+        [-np.sin(rotation_y), 0, np.cos(rotation_y)]
+    ])
+    
+    # Apply rotation and translation
+    corners_3d = np.dot(R, corners_3d.T).T
+    corners_3d[:, 0] += x
+    corners_3d[:, 1] += y
+    corners_3d[:, 2] += z
+    
+    # Transform to BEV image coordinates
+    x_img = (-corners_3d[:, 1] / resolution).astype(np.int32)
+    y_img = (-corners_3d[:, 0] / resolution).astype(np.int32)
+    
+    # Shift to image coordinates for the specific range
+    x_img -= int(np.floor(side_range[0] / resolution))
+    y_img += int(np.floor(fwd_range[1] / resolution))
+    
+    # Center point in BEV
+    center_x = int((-y / resolution) - int(np.floor(side_range[0] / resolution)))
+    center_y = int((-x / resolution) + int(np.floor(fwd_range[1] / resolution)))
+    
+    corners_bev = list(zip(x_img, y_img))
+    center_bev = (center_x, center_y)
+    
+    return corners_bev, center_bev
 
 def demonstrate_distance_scaling(points, labels, processor, original_bev, config, bin_file, label_file):
     """Demonstrate distance scaling augmentation"""

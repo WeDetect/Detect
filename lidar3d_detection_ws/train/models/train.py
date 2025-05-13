@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
     'bin_dir': '/lidar3d_detection_ws/data/innoviz',
     'label_dir': '/lidar3d_detection_ws/data/labels',
     'config_path': '/lidar3d_detection_ws/train/config/preprocessing_config.yaml',
-    'output_base': '/lidar3d_detection_ws/train/dataset',
+    'output_base': '/lidar3d_detection_ws/train',
     'train_val_split': 0.8,  # 80% training, 20% validation
     'epochs': 70,
     'batch_size': 8,
@@ -833,6 +833,131 @@ def load_and_continue_training(model_path, dataset_info, epochs, img_size, batch
     
     return best_weights
 
+def train_on_single_image_continue(bin_file, label_file, config_path, output_dir, model_path="best.pt", epochs=100, img_size=640, batch_size=1, device='cpu'):
+    """
+    Train a model on a single image for testing purposes, continuing from existing weights
+    
+    Args:
+        bin_file: Path to bin file
+        label_file: Path to label file
+        config_path: Path to config file
+        output_dir: Output directory
+        model_path: Path to model weights
+        epochs: Number of epochs
+        img_size: Image size
+        batch_size: Batch size
+        device: Device to use
+        
+    Returns:
+        Path to best weights
+    """
+    print("\n===== CONTINUING TRAINING ON SINGLE IMAGE =====")
+    print(f"Using bin file: {bin_file}")
+    print(f"Using label file: {label_file}")
+    print(f"Continuing from model: {model_path}")
+    
+    # Create output directories
+    os.makedirs(output_dir, exist_ok=True)
+    visualization_dir = os.path.join(output_dir, "single_image_visualization")
+    os.makedirs(visualization_dir, exist_ok=True)
+    
+    # Initialize processor
+    processor = PointCloudProcessor(config_path=config_path)
+    
+    # Process the point cloud to get BEV image and YOLO labels
+    bev_image, yolo_labels_str = processor.process_point_cloud(
+        bin_file, label_file, 
+        os.path.join(visualization_dir, "original_with_boxes.png"),
+        None  # Don't save labels to file
+    )
+    
+    # Convert string labels to numeric format
+    yolo_labels = []
+    for label_str in yolo_labels_str:
+        parts = label_str.split()
+        if len(parts) == 5:
+            yolo_labels.append([float(p) for p in parts])
+    
+    # הוסף בדיקה של התיבות המקוריות
+    print("\n===== CHECKING ORIGINAL 3D BOXES =====")
+    objects = processor.load_labels(label_file)
+    for i, obj in enumerate(objects):
+        print(f"Object {i+1}: Type={obj['type']}, Location=({obj['location'][0]:.2f}, {obj['location'][1]:.2f}, {obj['location'][2]:.2f}), Dimensions=({obj['dimensions'][0]:.2f}, {obj['dimensions'][1]:.2f}, {obj['dimensions'][2]:.2f}), Rotation={obj['rotation_y']:.2f}")
+    
+    # הוסף בדיקה של התיבות ב-BEV
+    print("\n===== CHECKING BEV BOXES =====")
+    for i, obj in enumerate(objects):
+        corners_bev, center_bev = processor.transform_3d_box_to_bev(
+            obj['dimensions'], obj['location'], obj['rotation_y']
+        )
+        x_coords = [x for x, y in corners_bev]
+        y_coords = [y for x, y in corners_bev]
+        width = max(x_coords) - min(x_coords)
+        height = max(y_coords) - min(y_coords)
+        print(f"Object {i+1}: Type={obj['type']}, BEV Width={width}, BEV Height={height}")
+    
+    # הוסף בדיקה של התיבות
+    print("\n===== CHECKING YOLO LABELS =====")
+    print("Ground Truth Labels (YOLO format):")
+    for i, label in enumerate(yolo_labels):
+        class_id, x_center, y_center, width, height = label
+        class_name = processor.class_names[int(class_id)]
+        print(f"Object {i+1}: Class={class_name}, Center=({x_center:.4f}, {y_center:.4f}), Size=({width:.4f}, {height:.4f})")
+    
+    # יצירת תמונה עם תיבות מסומנות לפי התוויות
+    verification_dir = os.path.join(output_dir, "label_verification")
+    os.makedirs(verification_dir, exist_ok=True)
+    
+    # העתק את התמונה המקורית
+    verify_img = bev_image.copy()
+    
+    # צייר את התיבות לפי התוויות
+    for label in yolo_labels:
+        class_id, x_center, y_center, width, height = label
+        # המר מקואורדינטות מנורמלות לפיקסלים
+        x_center_px = int(x_center * bev_image.shape[1])  # שימוש בגודל האמיתי של התמונה
+        y_center_px = int(y_center * bev_image.shape[0])
+        width_px = int(width * bev_image.shape[1])
+        height_px = int(height * bev_image.shape[0])
+        
+        # חשב את הפינות של התיבה
+        x1 = int(x_center_px - width_px / 2)
+        y1 = int(y_center_px - height_px / 2)
+        x2 = int(x_center_px + width_px / 2)
+        y2 = int(y_center_px + height_px / 2)
+        
+        # צייר את התיבה
+        color = processor.colors[processor.class_names[int(class_id)]]
+        cv2.rectangle(verify_img, (x1, y1), (x2, y2), color, 2)
+        
+    # שמור את התמונה עם התיבות
+    verify_path = os.path.join(verification_dir, "labels_verification.png")
+    cv2.imwrite(verify_path, verify_img)
+    print(f"Saved label verification image to: {verify_path}")
+    
+    # יצירת תמונה עם תיבות מסומנות לפי התוויות המקוריות
+    original_img = bev_image.copy()
+    for obj in objects:
+        corners_bev, center_bev = processor.transform_3d_box_to_bev(
+            obj['dimensions'], obj['location'], obj['rotation_y']
+        )
+        # צייר את התיבה המקורית
+        pts = np.array(corners_bev, np.int32)
+        pts = pts.reshape((-1, 1, 2))
+        color = processor.colors[obj['type']]
+        cv2.polylines(original_img, [pts], True, color, 2)
+
+    # שמור את התמונה עם התיבות המקוריות
+    original_path = os.path.join(verification_dir, "original_boxes.png")
+    cv2.imwrite(original_path, original_img)
+    print(f"Saved original boxes image to: {original_path}")
+
+    # יצירת תמונה משולבת להשוואה
+    combined_img = np.hstack((original_img, verify_img))
+    combined_path = os.path.join(verification_dir, "comparison.png")
+    cv2.imwrite(combined_path, combined_img)
+    print(f"Saved comparison image to: {combined_path}")
+
 def main():
     parser = argparse.ArgumentParser(description="BEV LiDAR Object Detection Training Pipeline")
     parser.add_argument("--bin_dir", default=DEFAULT_CONFIG['bin_dir'], help="Path to bin files")
@@ -850,6 +975,12 @@ def main():
     parser.add_argument("--unfreeze_layers", type=int, default=20, help="Number of layers to unfreeze for transfer learning")
     parser.add_argument("--continue_from", default=None, help="Path to existing model weights to continue training from")
     
+    # הוספת ארגומנטים חדשים
+    parser.add_argument("--single_image_test", action="store_true", help="Train on a single image for testing")
+    parser.add_argument("--model_path", default=None, help="Path to model weights for single image test")
+    parser.add_argument("--bin_file", default=None, help="Path to specific bin file for single image test")
+    parser.add_argument("--label_file", default=None, help="Path to specific label file for single image test")
+    
     args = parser.parse_args()
     
     print("BEV LiDAR Object Detection Training Pipeline")
@@ -860,6 +991,31 @@ def main():
         args.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         print(f"Auto-selected device: {args.device}")
     
+    # אם נבחרה האופציה לאימון על תמונה בודדת
+    if args.single_image_test:
+        # קבע קבצי ברירת מחדל אם לא צוינו
+        bin_file = args.bin_file or os.path.join(args.bin_dir, "innoviz_00010.bin")
+        label_file = args.label_file or os.path.join(args.label_dir, "innoviz_00010.txt")
+        
+        print(f"Using bin file: {bin_file}")
+        
+        # הרץ אימון על תמונה בודדת
+        model_path = train_on_single_image_continue(
+            bin_file=bin_file,
+            label_file=label_file,
+            config_path=args.config_path,
+            output_dir=os.path.join(args.output_base, "output"),
+            model_path=args.model_path or "best.pt",
+            epochs=args.epochs,
+            img_size=args.img_size,
+            batch_size=args.batch,
+            device=args.device
+        )
+        
+        print(f"Single image training completed. Model saved to: {model_path}")
+        return model_path
+    
+    # המשך הקוד הרגיל לאימון על מערך נתונים מלא
     # Step 1: Generate standard dataset
     print("\nStep 1: Generating standard BEV dataset...")
     standard_items = generate_standard_dataset(args.bin_dir, args.label_dir, args.config_path, 

@@ -257,11 +257,13 @@ class PointCloudProcessor:
         x, y, z = location
         
         # Calculate 3D box corners
-        # 3D bounding box corners
+        # 3D bounding box corners - using width and length correctly
+        # Order: front-left, front-right, back-right, back-left
         corners_3d = np.array([
-            [l/2, l/2, -l/2, -l/2, l/2, l/2, -l/2, -l/2],
-            [0, 0, 0, 0, -h, -h, -h, -h],
-            [w/2, -w/2, -w/2, w/2, w/2, -w/2, -w/2, w/2]
+            [l/2, w/2, 0],   # front-right
+            [l/2, -w/2, 0],  # front-left
+            [-l/2, -w/2, 0], # back-left
+            [-l/2, w/2, 0]   # back-right
         ])
         
         # Rotation matrix
@@ -272,28 +274,22 @@ class PointCloudProcessor:
         ])
         
         # Apply rotation and translation
-        corners_3d = np.dot(R, corners_3d)
-        corners_3d[0, :] += x
-        corners_3d[1, :] += y
-        corners_3d[2, :] += z
-        
-        # Get only the base of the box for BEV
-        base_corners_3d = corners_3d[:, :4]
+        corners_3d = np.dot(R, corners_3d.T).T
+        corners_3d[:, 0] += x
+        corners_3d[:, 1] += y
+        corners_3d[:, 2] += z
         
         # Transform to BEV image coordinates
-        x_img = (-base_corners_3d[1, :] / self.resolution).astype(np.int32)
-        y_img = (-base_corners_3d[0, :] / self.resolution).astype(np.int32)
-        
-        # Shift to image coordinates
-        x_img -= int(np.floor(self.side_range[0] / self.resolution))
-        y_img += int(np.floor(self.fwd_range[1] / self.resolution))
+        corners_bev = []
+        for corner in corners_3d:
+            x_img = int((-corner[1] / self.resolution) - int(np.floor(self.side_range[0] / self.resolution)))
+            y_img = int((-corner[0] / self.resolution) + int(np.floor(self.fwd_range[1] / self.resolution)))
+            corners_bev.append((x_img, y_img))
         
         # Center point in BEV
-        center_x = (-y / self.resolution) - int(np.floor(self.side_range[0] / self.resolution))
-        center_y = (-x / self.resolution) + int(np.floor(self.fwd_range[1] / self.resolution))
-        
-        corners_bev = list(zip(x_img, y_img))
-        center_bev = (int(center_x), int(center_y))
+        center_x = int((-y / self.resolution) - int(np.floor(self.side_range[0] / self.resolution)))
+        center_y = int((-x / self.resolution) + int(np.floor(self.fwd_range[1] / self.resolution)))
+        center_bev = (center_x, center_y)
         
         return corners_bev, center_bev
     
@@ -357,7 +353,7 @@ class PointCloudProcessor:
     # Create YOLO format label from BEV box corners
     def create_yolo_label(self, corners_bev, obj_type, img_shape):
         """
-        Create YOLO format label from BEV box corners
+        Create YOLO format label from BEV corners
         
         Parameters:
         -----------
@@ -366,41 +362,45 @@ class PointCloudProcessor:
         obj_type : str
             Object type (e.g., 'Car', 'Pedestrian', etc.)
         img_shape : tuple
-            (height, width) of the BEV image
+            (height, width) of the image
             
         Returns:
         --------
         str
             YOLO format label string
         """
-        # Class ID mapping
-        class_id = self.class_map.get(obj_type, 0)
+        # Get image dimensions
+        img_height, img_width = img_shape
         
-        # Extract corner coordinates
+        # Extract x and y coordinates
         x_coords = [x for x, y in corners_bev]
         y_coords = [y for x, y in corners_bev]
         
-        # Calculate bounding box parameters
-        x_min = min(x_coords)
-        x_max = max(x_coords)
-        y_min = min(y_coords)
-        y_max = max(y_coords)
+        # Calculate bounding box
+        x_min = max(0, min(x_coords))
+        y_min = max(0, min(y_coords))
+        x_max = min(img_width - 1, max(x_coords))
+        y_max = min(img_height - 1, max(y_coords))
         
-        # Calculate center and dimensions
-        x_center = (x_min + x_max) / 2
-        y_center = (y_min + y_max) / 2
-        width = x_max - x_min
-        height = y_max - y_min
+        # Calculate width and height
+        bbox_width = x_max - x_min
+        bbox_height = y_max - y_min
         
-        # Normalize by image dimensions
-        img_height, img_width = img_shape
-        x_center /= img_width
-        y_center /= img_height
-        width /= img_width
-        height /= img_height
+        # Calculate center
+        center_x = (x_min + x_max) / 2
+        center_y = (y_min + y_max) / 2
         
-        # Format as YOLO label
-        return f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}"
+        # Normalize coordinates
+        center_x /= img_width
+        center_y /= img_height
+        bbox_width /= img_width
+        bbox_height /= img_height
+        
+        # Get class ID
+        class_id = self.class_map.get(obj_type, 0)
+        
+        # Create YOLO format label
+        return f"{class_id} {center_x:.6f} {center_y:.6f} {bbox_width:.6f} {bbox_height:.6f}"
     
     def draw_filled_box_on_bev(self, bev_image, corners_bev, center_bev, obj_type):
         """

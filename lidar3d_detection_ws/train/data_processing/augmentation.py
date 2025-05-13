@@ -13,69 +13,50 @@ from preprocessing import read_bin_file, read_label_file, create_bev_image, load
 
 def rotate_points_and_labels(points, labels, angle_degrees):
     """
-    Rotate point cloud and labels around Z axis
+    Rotate point cloud and labels around the z-axis
     
     Args:
-        points: Nx4 point cloud array (x, y, z, intensity)
+        points: Nx4 array of points (x, y, z, intensity)
         labels: List of label dictionaries
-        angle_degrees: Rotation angle in degrees (0-360)
-    
+        angle_degrees: Rotation angle in degrees
+        
     Returns:
         rotated_points: Rotated point cloud
-        rotated_labels: Updated labels with new positions and orientations
+        rotated_labels: Rotated labels
     """
     # Convert angle to radians
     angle_rad = np.radians(angle_degrees)
     
-    # Create rotation matrix around Z axis
-    cos_theta = np.cos(angle_rad)
-    sin_theta = np.sin(angle_rad)
+    # Create rotation matrix
+    cos_angle = np.cos(angle_rad)
+    sin_angle = np.sin(angle_rad)
     rotation_matrix = np.array([
-        [cos_theta, -sin_theta, 0],
-        [sin_theta, cos_theta, 0],
+        [cos_angle, -sin_angle, 0],
+        [sin_angle, cos_angle, 0],
         [0, 0, 1]
     ])
     
-    # Calculate the centroid of the point cloud
-    centroid = np.mean(points[:, :3], axis=0)
+    # Rotate points (x, y, z)
+    rotated_points = points.copy()
+    rotated_points[:, :3] = np.dot(points[:, :3], rotation_matrix.T)
     
-    # Translate points to origin
-    translated_points = points[:, :3] - centroid
-    
-    # Apply rotation to XYZ coordinates (first 3 columns)
-    rotated_points = np.dot(translated_points, rotation_matrix.T)
-    
-    # Translate points back to original position
-    rotated_points += centroid
-    
-    # Copy intensity values
-    rotated_points = np.hstack((rotated_points, points[:, 3:4]))
-    
-    # Update labels
+    # Rotate labels
     rotated_labels = []
-    if labels is None:
-        return rotated_points, None
-        
     for label in labels:
-        new_label = label.copy()
-        
-        # Skip DontCare objects
-        if new_label['type'] == 'DontCare':
-            rotated_labels.append(new_label)
-            continue
+        # Create a deep copy of the label
+        rotated_label = label.copy()
         
         # Rotate location
-        x, y, z = new_label['location']
-        x -= centroid[0]
-        y -= centroid[1]
-        new_x = x * cos_theta - y * sin_theta + centroid[0]
-        new_y = x * sin_theta + y * cos_theta + centroid[1]
-        new_label['location'] = [new_x, new_y, z]
+        x, y, z = label['location']
+        rotated_x = x * cos_angle - y * sin_angle
+        rotated_y = x * sin_angle + y * cos_angle
+        rotated_label['location'] = [rotated_x, rotated_y, z]
         
-        # Update rotation_y (add the rotation angle)
-        new_label['rotation_y'] = (new_label['rotation_y'] + angle_rad) % (2 * np.pi)
+        # Adjust rotation_y
+        rotated_label['rotation_y'] = (label['rotation_y'] + angle_rad) % (2 * np.pi)
         
-        rotated_labels.append(new_label)
+        # Add to rotated labels
+        rotated_labels.append(rotated_label)
     
     return rotated_points, rotated_labels
 
@@ -488,11 +469,12 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
             h, w, l = dimensions
             x, y, z = location
             
-            # Calculate 3D box corners (exactly as in the original)
+            # Calculate 3D box corners - תיקון: שימוש נכון ברוחב ואורך
             corners_3d = np.array([
-                [l/2, l/2, -l/2, -l/2, l/2, l/2, -l/2, -l/2],
-                [0, 0, 0, 0, -h, -h, -h, -h],
-                [w/2, -w/2, -w/2, w/2, w/2, -w/2, -w/2, w/2]
+                [l/2, w/2, 0],   # front-right
+                [l/2, -w/2, 0],  # front-left
+                [-l/2, -w/2, 0], # back-left
+                [-l/2, w/2, 0]   # back-right
             ])
             
             # Rotation matrix
@@ -503,17 +485,14 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
             ])
             
             # Apply rotation and translation
-            corners_3d = np.dot(R, corners_3d)
-            corners_3d[0, :] += x
-            corners_3d[1, :] += y
-            corners_3d[2, :] += z
-            
-            # Get only the base of the box for BEV
-            base_corners_3d = corners_3d[:, :4]
+            corners_3d = np.dot(R, corners_3d.T).T
+            corners_3d[:, 0] += x
+            corners_3d[:, 1] += y
+            corners_3d[:, 2] += z
             
             # Transform to BEV image coordinates
-            x_img = (-base_corners_3d[1, :] / self.resolution).astype(np.int32)
-            y_img = (-base_corners_3d[0, :] / self.resolution).astype(np.int32)
+            x_img = (-corners_3d[:, 1] / self.resolution).astype(np.int32)
+            y_img = (-corners_3d[:, 0] / self.resolution).astype(np.int32)
             
             # Shift to image coordinates for the specific range
             x_img -= int(np.floor(self.side_range[0] / self.resolution))
@@ -535,6 +514,17 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
             
             # Get color for this object type
             color = self.color_map.get(obj_type, (255, 255, 255))  # Default: white
+            
+            # Convert corners to numpy array for drawing
+            corners_np = np.array(corners_bev, dtype=np.int32)
+            
+            # Draw filled polygon with transparency
+            overlay = bev_with_box.copy()
+            cv2.fillPoly(overlay, [corners_np], color)
+            
+            # Apply the overlay with transparency
+            alpha = 0.3  # Transparency factor
+            cv2.addWeighted(overlay, alpha, bev_with_box, 1 - alpha, 0, bev_with_box)
             
             # Connect corners with lines
             for i in range(4):
@@ -568,6 +558,12 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
             y_min = np.min(corners[:, 1])
             x_max = np.max(corners[:, 0])
             y_max = np.max(corners[:, 1])
+            
+            # Ensure the box has width and height
+            if x_max <= x_min:
+                x_max = x_min + 1
+            if y_max <= y_min:
+                y_max = y_min + 1
             
             # Calculate center and dimensions (YOLO format)
             x_center = (x_min + x_max) / 2
