@@ -2,401 +2,414 @@ import os
 import sys
 import argparse
 import yaml
-import numpy as np
-import cv2
 from pathlib import Path
+import cv2
+import numpy as np
+import random
+from tqdm import tqdm
 import torch
 from ultralytics import YOLO
+import matplotlib
+# Use non-interactive backend to avoid GUI issues
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, classification_report
+from collections import defaultdict
 
 # Add parent directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-# Import our processor and functions
-from data_processing.preproccesing_0 import PointCloudProcessor
-# Import convert_labels_to_yolo_format directly
-from data_processing.preproccesing_0 import convert_labels_to_yolo_format
+# Import from our other modules
+from data_processing.preprocessing import load_config, read_bin_file, read_label_file, create_bev_image
+from data_processing.preproccesing_0 import convert_labels_to_yolo_format, PointCloudProcessor
 
-# Define class names
-CLASS_NAMES = ['Car', 'Pedestrian', 'Cyclist', 'Truck']
-CLASS_COLORS = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 255, 0)]  # BGR format
-
-# Default paths
-DEFAULT_MODEL_PATH = '/lidar3d_detection_ws/train/output/best.pt'
-DEFAULT_CONFIG_PATH = '/lidar3d_detection_ws/train/config/preprocessing_config.yaml'
-DEFAULT_OUTPUT_DIR = '/lidar3d_detection_ws/output/eval'
-DEFAULT_BIN_FILE = '/lidar3d_detection_ws/data/innoviz/innoviz_00010.bin'
-DEFAULT_LABEL_FILE = '/lidar3d_detection_ws/data/labels/innoviz_00010.txt'
-
-def evaluate_single_file(model_path, bin_file, label_file, config_path, output_dir, conf_threshold=0.25, iou_threshold=0.45):
+def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir, conf_threshold=0.25, iou_threshold=0.5, max_samples=10):
     """
-    Evaluate model on a single point cloud file
+    Evaluate a trained model on bin files
     
     Args:
-        model_path: Path to trained YOLO model
-        bin_file: Path to point cloud bin file
-        label_file: Path to corresponding label file
-        config_path: Path to preprocessing config file
-        output_dir: Directory to save results
-        conf_threshold: Confidence threshold for predictions
+        model_path: Path to trained model weights
+        bin_dir: Directory containing bin files
+        label_dir: Directory containing label files
+        config_path: Path to config file
+        output_dir: Output directory for evaluation results
+        conf_threshold: Confidence threshold for detections
         iou_threshold: IoU threshold for NMS
+        max_samples: Maximum number of samples to evaluate and visualize
+        
+    Returns:
+        Dictionary with evaluation metrics
     """
-    # Create output directory if it doesn't exist
+    print("\n===== EVALUATING MODEL =====")
+    print(f"Using model: {model_path}")
+    print(f"Using bin directory: {bin_dir}")
+    print(f"Using label directory: {label_dir}")
+    print(f"Confidence threshold: {conf_threshold}")
+    
+    # Create output directories
     os.makedirs(output_dir, exist_ok=True)
+    visualization_dir = os.path.join(output_dir, "evaluation_visualization")
+    os.makedirs(visualization_dir, exist_ok=True)
     
-    # Get file name without extension
-    base_name = os.path.basename(bin_file).split('.')[0]
-    
-    # Load trained YOLO model
-    print(f"Loading model from {model_path}")
-    model = YOLO(model_path)
-    
-    # Create processor with the same settings as training
-    print(f"Loading config from {config_path}")
+    # Initialize processor
     processor = PointCloudProcessor(config_path=config_path)
     
-    # Load the configuration manually for YOLO format conversion
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
+    # Load model
+    model = YOLO(model_path)
     
-    print(f"Processing file: {base_name}")
+    # Get all bin files
+    bin_files = sorted([f for f in os.listdir(bin_dir) if f.endswith('.bin')])
+    if not bin_files:
+        raise ValueError(f"No bin files found in {bin_dir}")
     
-    # Load point cloud data
-    points = processor.load_point_cloud(bin_file)
+    # Randomly select samples if there are more than max_samples
+    if len(bin_files) > max_samples:
+        bin_files = random.sample(bin_files, max_samples)
     
-    # Load labels
-    if os.path.exists(label_file):
-        labels = processor.load_labels(label_file)
-        print(f"Raw labels from file:")
-        for label in labels:
-            print(f"  {label}")
-    else:
-        print(f"Warning: Label file not found: {label_file}")
-        labels = []
+    print(f"Evaluating on {len(bin_files)} samples")
     
-    # Create BEV image - this is the standard orientation
-    bev_image = processor.create_bev_image(points)
+    # Store class statistics
+    class_stats = defaultdict(lambda: {'TP': 0, 'FP': 0, 'FN': 0})
     
-    # Create a copy for drawing results
-    result_image = bev_image.copy()
+    # Lists to store IoU values for each class
+    class_ious = {class_name: [] for class_name in processor.class_names}
     
-    # Get image dimensions for converting YOLO format
-    height, width = bev_image.shape[:2]
-    
-    # Extract ground truth boxes from labels - TWO APPROACHES
-    gt_boxes = []
-    
-    # 1. First approach using transform_3d_box_to_bev (for visualization only)
-    print("\nGround Truth Boxes (3D Transform Method):")
-    for label in labels:
-        if label['type'] not in CLASS_NAMES:
+    # Process each bin file
+    for i, bin_filename in enumerate(tqdm(bin_files, desc="Evaluating")):
+        bin_file = os.path.join(bin_dir, bin_filename)
+        
+        # Get corresponding label file
+        label_name = os.path.splitext(bin_filename)[0] + ".txt"
+        label_file = os.path.join(label_dir, label_name)
+        
+        if not os.path.exists(label_file):
+            print(f"Warning: Label file {label_file} not found, skipping {bin_file}")
             continue
+        
+        # Process the point cloud
+        try:
+            # Process point cloud to get BEV image and YOLO labels
+            bev_image, yolo_labels_str = processor.process_point_cloud(
+                bin_file, label_file, None, None
+            )
             
-        cls_idx = CLASS_NAMES.index(label['type'])
-        
-        # Get box coordinates for visualization
-        corners_bev, center_bev = processor.transform_3d_box_to_bev(
-            label['dimensions'], label['location'], label['rotation_y']
-        )
-        
-        # Draw ground truth box (polygon shape from 3D transform)
-        cv2.polylines(result_image, [np.array(corners_bev).astype(np.int32)], True, (0, 255, 0), 2)
-        
-        # Get min/max to create box coordinates
-        if isinstance(corners_bev, list):
-            x_coords = [corner[0] for corner in corners_bev]
-            y_coords = [corner[1] for corner in corners_bev]
-        else:
-            x_coords = corners_bev[:, 0]
-            y_coords = corners_bev[:, 1]
-        
-        x_min, x_max = int(min(x_coords)), int(max(x_coords))
-        y_min, y_max = int(min(y_coords)), int(max(y_coords))
-        
-        # Ensure non-zero width/height
-        if x_max == x_min:
-            x_max = x_min + 1
-        if y_max == y_min:
-            y_max = y_min + 1
-        
-        # Draw rectangular box from 3D transform (yellow)
-        cv2.rectangle(result_image, (x_min, y_min), (x_max, y_max), (255, 255, 0), 1)
-
-    # 2. Second approach: Use convert_labels_to_yolo_format (same as training)
-    print("\nGround Truth Boxes (YOLO Format - Same as Training):")
-    
-    # Use the YOLO format conversion (same method used in training) - calling directly
-    yolo_format_labels = convert_labels_to_yolo_format(
-        labels, config, width, height
-    )
-    
-    # Debug the structure of yolo_format_labels
-    print(f"YOLO format labels structure: {type(yolo_format_labels)}")
-    if len(yolo_format_labels) > 0:
-        print(f"First element type: {type(yolo_format_labels[0])}")
-        print(f"First element: {yolo_format_labels[0]}")
-    
-    # Create a rotated version of the BEV image for training compatibility
-    # This is what the model expects during inference
-    rotated_bev = cv2.rotate(bev_image.copy(), cv2.ROTATE_90_COUNTERCLOCKWISE)
-    rotated_height, rotated_width = rotated_bev.shape[:2]
-    
-    # Create a copy for drawing rotated ground truth
-    rotated_gt_image = rotated_bev.copy()
-    
-    # Convert YOLO format back to pixel coordinates for evaluation
-    for label in yolo_format_labels:
-        # Check if label is a list/array with at least 5 elements
-        if not isinstance(label, (list, np.ndarray)) or len(label) < 5:
-            print(f"Skipping invalid label: {label}")
-            continue
-            
-        # YOLO format: [class_id, x_center, y_center, width, height] (normalized)
-        cls_idx = int(label[0])
-        if cls_idx >= len(CLASS_NAMES):
-            print(f"Skipping label with invalid class index: {cls_idx}")
-            continue
-            
-        # Original coordinates (non-rotated)
-        x_center, y_center = label[1] * width, label[2] * height
-        w, h = label[3] * width, label[4] * height
-        
-        # Convert to pixel coordinates
-        x_min = int(x_center - w/2)
-        y_min = int(y_center - h/2)
-        x_max = int(x_center + w/2)
-        y_max = int(y_center + h/2)
-        
-        # Ensure valid coordinates
-        x_min = max(0, x_min)
-        y_min = max(0, y_min)
-        x_max = min(width-1, x_max)
-        y_max = min(height-1, y_max)
-        
-        # Ensure non-zero width/height
-        if x_max <= x_min:
-            x_max = x_min + 1
-        if y_max <= y_min:
-            y_max = y_min + 1
-        
-        # Store the box for evaluation (using YOLO format method)
-        gt_box = (cls_idx, x_min, y_min, x_max, y_max)
-        gt_boxes.append(gt_box)
-        
-        # Draw rectangular box from YOLO format (blue) on original orientation
-        cv2.rectangle(result_image, (x_min, y_min), (x_max, y_max), (255, 0, 0), 2)
-        
-        # Add class label
-        label_text = f"{CLASS_NAMES[cls_idx]} (YOLO)"
-        cv2.putText(result_image, label_text, (x_min, y_min-10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-        
-        # Print box info
-        print(f"GT Box (YOLO) for {CLASS_NAMES[cls_idx]}: {gt_box}")
-        
-        # Now transform the coordinates for the rotated image
-        # In 90° counterclockwise rotation:
-        # new_x = y, new_y = height - x
-        rot_x_min = y_min
-        rot_y_min = width - x_max
-        rot_x_max = y_max
-        rot_y_max = width - x_min
-        
-        # Draw on rotated image
-        cv2.rectangle(rotated_gt_image, (rot_x_min, rot_y_min), (rot_x_max, rot_y_max), (255, 0, 0), 2)
-        cv2.putText(rotated_gt_image, label_text, (rot_x_min, rot_y_min-10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-    
-    # Save the ground truth visualizations
-    gt_vis_path = os.path.join(output_dir, f"{base_name}_gt.png")
-    cv2.imwrite(gt_vis_path, result_image)
-    
-    rotated_gt_vis_path = os.path.join(output_dir, f"{base_name}_gt_rotated.png")
-    cv2.imwrite(rotated_gt_vis_path, rotated_gt_image)
-    
-    print(f"Ground truth visualization saved to: {gt_vis_path}")
-    print(f"Rotated ground truth visualization saved to: {rotated_gt_vis_path}")
-    
-    # Run inference with the model on the rotated image
-    print("\nRunning inference with YOLO model...")
-    results = model.predict(rotated_bev, conf=conf_threshold, iou=iou_threshold, verbose=False)[0]
-    
-    # Create a copy of the rotated image for predictions
-    rotated_pred_image = rotated_bev.copy()
-    
-    # Extract predictions
-    pred_boxes = []
-    
-    print("\nPredicted Boxes:")
-    for i, det in enumerate(results.boxes.data.tolist()):
-        x_min, y_min, x_max, y_max, conf, cls_idx = det
-        
-        # Convert to integers
-        x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(x_max), int(y_max)
-        cls_idx = int(cls_idx)
-        
-        if cls_idx >= len(CLASS_NAMES):
-            print(f"Skipping prediction with invalid class index: {cls_idx}")
-            continue
-        
-        # Store prediction in rotated coordinates
-        rot_pred_box = (cls_idx, x_min, y_min, x_max, y_max, conf)
-        
-        # Draw prediction box on rotated image
-        cv2.rectangle(rotated_pred_image, (x_min, y_min), (x_max, y_max), CLASS_COLORS[cls_idx], 2)
-        
-        # Add class label and confidence
-        label_text = f"{CLASS_NAMES[cls_idx]} {conf:.2f}"
-        cv2.putText(rotated_pred_image, label_text, (x_min, y_min-10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, CLASS_COLORS[cls_idx], 2)
-        
-        # Print prediction info in rotated coordinates
-        print(f"Pred Box (rotated) for {CLASS_NAMES[cls_idx]}: {rot_pred_box}")
-        
-        # Transform back to original orientation for evaluation
-        # In 90° clockwise rotation (inverse of counterclockwise):
-        # new_x = width - y, new_y = x
-        orig_x_min = rotated_height - y_max
-        orig_y_min = x_min
-        orig_x_max = rotated_height - y_min
-        orig_y_max = x_max
-        
-        # Store in original orientation for evaluation
-        pred_box = (cls_idx, orig_x_min, orig_y_min, orig_x_max, orig_y_max, conf)
-        pred_boxes.append(pred_box)
-        
-        # Print prediction info in original coordinates
-        print(f"Pred Box (original) for {CLASS_NAMES[cls_idx]}: {pred_box}")
-    
-    # Save the prediction visualization
-    rotated_pred_vis_path = os.path.join(output_dir, f"{base_name}_pred_rotated.png")
-    cv2.imwrite(rotated_pred_vis_path, rotated_pred_image)
-    print(f"Rotated prediction visualization saved to: {rotated_pred_vis_path}")
-    
-    # Create a combined visualization of rotated images
-    combined_rotated = np.hstack((rotated_gt_image, rotated_pred_image))
-    combined_rotated_path = os.path.join(output_dir, f"{base_name}_combined_rotated.png")
-    cv2.imwrite(combined_rotated_path, combined_rotated)
-    print(f"Combined rotated visualization saved to: {combined_rotated_path}")
-    
-    # Calculate metrics (simple IoU-based)
-    print("\nCalculating metrics...")
-    
-    # Count true positives, false positives, false negatives
-    tp = 0
-    fp = 0
-    fn = 0
-    
-    # For each ground truth box, find the best matching prediction
-    for gt_box in gt_boxes:
-        gt_cls, gt_x1, gt_y1, gt_x2, gt_y2 = gt_box
-        best_iou = 0
-        best_pred_idx = -1
-        
-        for i, pred_box in enumerate(pred_boxes):
-            if pred_box is None:
+            # Skip if no labels
+            if not yolo_labels_str:
+                print(f"Warning: No labels found for {bin_file}, skipping")
                 continue
+            
+            # Convert string labels to numeric format for ground truth
+            gt_boxes = []
+            gt_classes = []
+            
+            for label_str in yolo_labels_str:
+                parts = label_str.split()
+                if len(parts) == 5:
+                    class_id, x_center, y_center, width, height = map(float, parts)
+                    
+                    # Convert normalized coordinates to pixel coordinates
+                    img_height, img_width = bev_image.shape[:2]
+                    x_center_px = x_center * img_width
+                    y_center_px = y_center * img_height
+                    width_px = width * img_width
+                    height_px = height * img_height
+                    
+                    # Calculate box corners
+                    x1 = x_center_px - width_px / 2
+                    y1 = y_center_px - height_px / 2
+                    x2 = x_center_px + width_px / 2
+                    y2 = y_center_px + height_px / 2
+                    
+                    gt_boxes.append([x1, y1, x2, y2])
+                    gt_classes.append(int(class_id))
+            
+            # Run inference
+            results = model.predict(bev_image, conf=conf_threshold, iou=iou_threshold)[0]
+            
+            # Extract predictions
+            pred_boxes = []
+            pred_classes = []
+            pred_scores = []
+            
+            if len(results.boxes) > 0:
+                for box in results.boxes:
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    cls = int(box.cls[0].cpu().numpy())
+                    conf = float(box.conf[0].cpu().numpy())
+                    
+                    pred_boxes.append([x1, y1, x2, y2])
+                    pred_classes.append(cls)
+                    pred_scores.append(conf)
+            
+            # Calculate IoU for each ground truth box with best matching prediction
+            for gt_idx, (gt_box, gt_cls) in enumerate(zip(gt_boxes, gt_classes)):
+                best_iou = 0
+                best_pred_idx = -1
                 
-            pred_cls, pred_x1, pred_y1, pred_x2, pred_y2, _ = pred_box
+                for pred_idx, (pred_box, pred_cls) in enumerate(zip(pred_boxes, pred_classes)):
+                    if pred_cls == gt_cls:  # Only compare boxes of same class
+                        iou = calculate_iou(gt_box, pred_box)
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_pred_idx = pred_idx
+                
+                # Get class name
+                class_name = processor.class_names[gt_cls]
+                
+                if best_iou >= iou_threshold:
+                    # True positive
+                    class_stats[class_name]['TP'] += 1
+                    class_ious[class_name].append(best_iou)
+                else:
+                    # False negative (ground truth not detected)
+                    class_stats[class_name]['FN'] += 1
             
-            # Only compare boxes of the same class
-            if gt_cls != pred_cls:
-                continue
+            # Check for false positives (predictions without matching ground truth)
+            for pred_idx, (pred_box, pred_cls) in enumerate(zip(pred_boxes, pred_classes)):
+                best_iou = 0
+                best_gt_idx = -1
+                
+                for gt_idx, (gt_box, gt_cls) in enumerate(zip(gt_boxes, gt_classes)):
+                    if pred_cls == gt_cls:
+                        iou = calculate_iou(gt_box, pred_box)
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_gt_idx = gt_idx
+                
+                # Get class name
+                class_name = processor.class_names[pred_cls]
+                
+                if best_iou < iou_threshold:
+                    # False positive
+                    class_stats[class_name]['FP'] += 1
             
-            # Calculate IoU
-            x_left = max(gt_x1, pred_x1)
-            y_top = max(gt_y1, pred_y1)
-            x_right = min(gt_x2, pred_x2)
-            y_bottom = min(gt_y2, pred_y2)
-            
-            if x_right < x_left or y_bottom < y_top:
-                # No overlap
-                continue
-            
-            intersection = (x_right - x_left) * (y_bottom - y_top)
-            gt_area = (gt_x2 - gt_x1) * (gt_y2 - gt_y1)
-            pred_area = (pred_x2 - pred_x1) * (pred_y2 - pred_y1)
-            union = gt_area + pred_area - intersection
-            
-            iou = intersection / union
-            
-            if iou > best_iou:
-                best_iou = iou
-                best_pred_idx = i
+            # Create visualization for the first 3 samples
+            if i < 3:
+                # Create ground truth image
+                gt_img = bev_image.copy()
+                for gt_box, gt_cls in zip(gt_boxes, gt_classes):
+                    x1, y1, x2, y2 = map(int, gt_box)
+                    color = processor.colors[processor.class_names[gt_cls]]
+                    cv2.rectangle(gt_img, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(gt_img, processor.class_names[gt_cls], (x1, y1 - 10), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                
+                # Get prediction image from results
+                pred_img = results.plot()
+                
+                # Create side-by-side comparison
+                comparison_img = np.hstack((gt_img, pred_img))
+                comparison_path = os.path.join(visualization_dir, f"sample_{i+1}_comparison.png")
+                cv2.imwrite(comparison_path, comparison_img)
+                print(f"Saved comparison image to: {comparison_path}")
         
-        if best_iou >= iou_threshold:
-            # True positive
-            tp += 1
-            # Mark this prediction as used
-            if best_pred_idx >= 0:
-                pred_boxes[best_pred_idx] = None
+        except Exception as e:
+            print(f"Error processing {bin_file}: {e}")
+            continue
+    
+    # Calculate metrics for each class
+    class_metrics = {}
+    for class_name, stats in class_stats.items():
+        tp = stats['TP']
+        fp = stats['FP']
+        fn = stats['FN']
+        
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+        
+        class_metrics[class_name] = {
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'support': tp + fn
+        }
+    
+    # Calculate average IoU for each class
+    avg_ious = {}
+    for class_name, ious in class_ious.items():
+        if ious:
+            avg_ious[class_name] = sum(ious) / len(ious)
         else:
-            # False negative
-            fn += 1
+            avg_ious[class_name] = 0
     
-    # Count remaining predictions as false positives
-    for pred_box in pred_boxes:
-        if pred_box is not None:
-            fp += 1
+    # Calculate overall metrics
+    avg_precision = sum(m['precision'] for m in class_metrics.values()) / len(class_metrics) if class_metrics else 0
+    avg_recall = sum(m['recall'] for m in class_metrics.values()) / len(class_metrics) if class_metrics else 0
+    macro_f1 = sum(m['f1'] for m in class_metrics.values()) / len(class_metrics) if class_metrics else 0
     
-    # Calculate precision and recall
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-    f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    # Create confusion matrix visualization
+    # Instead of using sklearn's confusion_matrix, we'll create our own
+    class_names = list(class_stats.keys())
+    num_classes = len(class_names)
     
-    print(f"\nEvaluation Results:")
-    print(f"True Positives: {tp}")
-    print(f"False Positives: {fp}")
-    print(f"False Negatives: {fn}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1 Score: {f1_score:.4f}")
+    # Create a mapping from class name to index
+    class_to_idx = {name: i for i, name in enumerate(class_names)}
+    
+    # Initialize confusion matrix
+    cm = np.zeros((num_classes, num_classes), dtype=int)
+    
+    # Fill confusion matrix using our statistics
+    for class_name, stats in class_stats.items():
+        i = class_to_idx[class_name]
+        # True positives go on the diagonal
+        cm[i, i] = stats['TP']
+        
+        # False negatives are spread across the row (ground truth is class i but predicted as something else)
+        # We'll just put them in a special "missed" column for simplicity
+        if num_classes > 1:  # Only if we have more than one class
+            missed_col = (i + 1) % num_classes  # Just pick another column
+            cm[i, missed_col] = stats['FN']
+        
+        # False positives are spread across the column (predicted as class i but actually something else)
+        # We'll just put them in a special "false" row for simplicity
+        if num_classes > 1:  # Only if we have more than one class
+            false_row = (i + 1) % num_classes  # Just pick another row
+            cm[false_row, i] = stats['FP']
+    
+    # Normalize confusion matrix
+    cm_normalized = cm.astype('float') / (cm.sum(axis=1)[:, np.newaxis] + 1e-10)
+    
+    # Plot confusion matrix
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm_normalized, annot=True, fmt='.2f', cmap='Blues',
+                xticklabels=class_names, yticklabels=class_names)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Normalized Confusion Matrix')
+    cm_path = os.path.join(output_dir, 'confusion_matrix.png')
+    plt.savefig(cm_path)
+    plt.close()
+    print(f"Saved confusion matrix to: {cm_path}")
+    
+    # Save report to file
+    report_path = os.path.join(output_dir, 'classification_report.txt')
+    with open(report_path, 'w') as f:
+        f.write("Classification Report\n")
+        f.write("=====================\n\n")
+        
+        f.write(f"Model: {model_path}\n")
+        f.write(f"Confidence threshold: {conf_threshold}\n")
+        f.write(f"IoU threshold: {iou_threshold}\n\n")
+        
+        f.write("Class-wise Performance:\n")
+        f.write("----------------------\n")
+        for class_name, metrics in class_metrics.items():
+            f.write(f"{class_name}:\n")
+            f.write(f"  Precision: {metrics['precision']:.4f}\n")
+            f.write(f"  Recall: {metrics['recall']:.4f}\n")
+            f.write(f"  F1-Score: {metrics['f1']:.4f}\n")
+            f.write(f"  Support: {metrics['support']}\n")
+            if class_name in avg_ious:
+                f.write(f"  Average IoU: {avg_ious[class_name]:.4f}\n")
+            f.write("\n")
+        
+        f.write("Overall Performance:\n")
+        f.write("-------------------\n")
+        f.write(f"Average Precision: {avg_precision:.4f}\n")
+        f.write(f"Average Recall: {avg_recall:.4f}\n")
+        f.write(f"Macro Avg F1-Score: {macro_f1:.4f}\n")
+    
+    print(f"Saved classification report to: {report_path}")
+    
+    # Print summary to console
+    print("\n===== EVALUATION SUMMARY =====")
+    print(f"Average Precision: {avg_precision:.4f}")
+    print(f"Average Recall: {avg_recall:.4f}")
+    print(f"Macro Avg F1-Score: {macro_f1:.4f}")
+    print("\nClass-wise Performance:")
+    for class_name, metrics in class_metrics.items():
+        print(f"  {class_name}:")
+        print(f"    Precision: {metrics['precision']:.4f}")
+        print(f"    Recall: {metrics['recall']:.4f}")
+        print(f"    F1-Score: {metrics['f1']:.4f}")
+        if class_name in avg_ious:
+            print(f"    Average IoU: {avg_ious[class_name]:.4f}")
     
     return {
-        'tp': tp,
-        'fp': fp,
-        'fn': fn,
-        'precision': precision,
-        'recall': recall,
-        'f1_score': f1_score,
-        'gt_vis_path': gt_vis_path,
-        'rotated_gt_vis_path': rotated_gt_vis_path,
-        'rotated_pred_vis_path': rotated_pred_vis_path,
-        'combined_rotated_path': combined_rotated_path
+        'avg_precision': avg_precision,
+        'avg_recall': avg_recall,
+        'macro_f1': macro_f1,
+        'class_metrics': class_metrics,
+        'avg_ious': avg_ious
     }
 
-def main():
-    parser = argparse.ArgumentParser(description="Evaluate YOLO model on point cloud data")
+def calculate_iou(box1, box2):
+    """
+    Calculate IoU between two bounding boxes
     
-    # Add arguments with default values
-    parser.add_argument("--model", default=DEFAULT_MODEL_PATH, 
-                      help="Path to trained YOLO model")
-    parser.add_argument("--bin_file", default=DEFAULT_BIN_FILE,
-                      help="Path to point cloud bin file")
-    parser.add_argument("--label_file", default=DEFAULT_LABEL_FILE,
-                      help="Path to label file")
-    parser.add_argument("--config_path", default=DEFAULT_CONFIG_PATH,
-                      help="Path to preprocessing config file")
-    parser.add_argument("--output_dir", default=DEFAULT_OUTPUT_DIR,
-                      help="Directory to save results")
-    parser.add_argument("--conf", type=float, default=0.25,
-                      help="Confidence threshold for predictions")
-    parser.add_argument("--iou", type=float, default=0.45,
-                      help="IoU threshold for NMS")
+    Args:
+        box1: [x1, y1, x2, y2]
+        box2: [x1, y1, x2, y2]
+        
+    Returns:
+        IoU value
+    """
+    # Get coordinates of intersection
+    x1_inter = max(box1[0], box2[0])
+    y1_inter = max(box1[1], box2[1])
+    x2_inter = min(box1[2], box2[2])
+    y2_inter = min(box1[3], box2[3])
+    
+    # Calculate area of intersection
+    width_inter = max(0, x2_inter - x1_inter)
+    height_inter = max(0, y2_inter - y1_inter)
+    area_inter = width_inter * height_inter
+    
+    # Calculate area of both boxes
+    area_box1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    area_box2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    
+    # Calculate area of union
+    area_union = area_box1 + area_box2 - area_inter
+    
+    # Calculate IoU
+    iou = area_inter / area_union if area_union > 0 else 0
+    
+    return iou
+
+def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Evaluate YOLO model on BEV images')
+    
+    # Model and dataset options
+    parser.add_argument('--model_path', type=str, default='/lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/best.pt', 
+                        help='Path to trained model weights')
+    parser.add_argument('--bin_dir', type=str, default='/lidar3d_detection_ws/data/innoviz/', 
+                        help='Directory containing bin files')
+    parser.add_argument('--label_dir', type=str, default='/lidar3d_detection_ws/data/labels/', 
+                        help='Directory containing label files')
+    parser.add_argument('--config_path', type=str, default='/lidar3d_detection_ws/train/config/preprocessing_config.yaml', 
+                        help='Path to preprocessing config file')
+    parser.add_argument('--output_dir', type=str, default='/lidar3d_detection_ws/train/evaluation', 
+                        help='Output directory for evaluation results')
+    
+    # Evaluation options
+    parser.add_argument('--conf_threshold', type=float, default=0.25, 
+                        help='Confidence threshold for detections')
+    parser.add_argument('--iou_threshold', type=float, default=0.5, 
+                        help='IoU threshold for NMS and TP calculation')
+    parser.add_argument('--max_samples', type=int, default=10, 
+                        help='Maximum number of samples to evaluate')
     
     args = parser.parse_args()
     
-    # Call evaluate function with parsed arguments
-    evaluate_single_file(
-        args.model, 
-        args.bin_file, 
-        args.label_file, 
-        args.config_path, 
-        args.output_dir,
-        args.conf,
-        args.iou
+    # Evaluate model
+    metrics = evaluate_model(
+        model_path=args.model_path,
+        bin_dir=args.bin_dir,
+        label_dir=args.label_dir,
+        config_path=args.config_path,
+        output_dir=args.output_dir,
+        conf_threshold=args.conf_threshold,
+        iou_threshold=args.iou_threshold,
+        max_samples=args.max_samples
     )
+    
+    return metrics
 
 if __name__ == "__main__":
     main()

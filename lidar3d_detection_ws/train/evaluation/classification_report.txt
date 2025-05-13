@@ -1,0 +1,35 @@
+Classification Report
+=====================
+
+Model: /lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/last.pt
+Confidence threshold: 0.8
+IoU threshold: 0.5
+
+Class-wise Performance:
+----------------------
+Car:
+  Precision: 1.0000
+  Recall: 1.0000
+  F1-Score: 1.0000
+  Support: 96
+  Average IoU: 0.9690
+
+Pedestrian:
+  Precision: 1.0000
+  Recall: 0.7273
+  F1-Score: 0.8421
+  Support: 22
+  Average IoU: 0.9091
+
+Cyclist:
+  Precision: 1.0000
+  Recall: 0.8000
+  F1-Score: 0.8889
+  Support: 5
+  Average IoU: 0.8950
+
+Overall Performance:
+-------------------
+Average Precision: 1.0000
+Average Recall: 0.8424
+Macro Avg F1-Score: 0.9103
