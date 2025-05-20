@@ -379,7 +379,7 @@ def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, 
                 )
                 
                 # Augmentation 1: Rotate point cloud by different angles
-                for angle in [-30, -15, 15, 30]:
+                for angle in [-15, 15]:
                     # Rotate points and labels
                     rotated_points, rotated_labels = rotate_points_and_labels(points, labels, angle)
                     
@@ -425,7 +425,7 @@ def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, 
                         cv2.imwrite(verify_path, rotated_bev_with_boxes)
                 
                 # Augmentation 2: Scale distance (move objects closer/further)
-                for scale in [-5, -2.5, 2.5, 5]:
+                for scale in [-2.5, 2.5]:
                     # Scale points and labels
                     scaled_points, scaled_labels = scale_distance_points_and_labels(points, labels, scale)
                     
@@ -464,14 +464,14 @@ def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, 
                             'yolo_labels': scaled_yolo_labels,
                             'augmentation': f'scale_{scale}'
                         })
-                    
+                
                     # Save verification image if needed
                     if bin_idx < 5:
                         verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_scale_{scale}.png")
                         cv2.imwrite(verify_path, scaled_bev_with_boxes)
                 
                 # Augmentation 3: Shift laterally (left/right)
-                for x_shift in [-5, -2.5, 2.5, 5]:
+                for x_shift in [-2.5, 2.5]:
                     # Shift points and labels
                     shifted_points, shifted_labels = shift_lateral_points_and_labels(points, labels, x_shift)
                     
@@ -516,16 +516,11 @@ def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, 
                         verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_x_shift_{x_shift}.png")
                         cv2.imwrite(verify_path, shifted_bev_with_boxes)
                 
-                # Augmentation 4: Fixed range zoom-in views (7 different views)
+                # Augmentation 4: Fixed range zoom-in views
                 # Define 7 fixed regions to zoom in
                 fixed_regions = [
                     {"x_min": 0, "x_max": 10, "y_min": -5, "y_max": 5, "name": "front_center"},
-                    {"x_min": 0, "x_max": 10, "y_min": 5, "y_max": 15, "name": "front_right"},
-                    {"x_min": 0, "x_max": 10, "y_min": -15, "y_max": -5, "name": "front_left"},
-                    {"x_min": 10, "x_max": 20, "y_min": -5, "y_max": 5, "name": "mid_center"},
-                    {"x_min": 10, "x_max": 20, "y_min": 5, "y_max": 15, "name": "mid_right"},
-                    {"x_min": 10, "x_max": 20, "y_min": -15, "y_max": -5, "name": "mid_left"},
-                    {"x_min": 20, "x_max": 30, "y_min": -5, "y_max": 5, "name": "far_center"},
+                    {"x_min": 10, "x_max": 20, "y_min": -5, "y_max": 5, "name": "mid_center"}
                 ]
                 
                 # Load config for create_range_adapted_bev_image
@@ -544,17 +539,19 @@ def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, 
                     # Only add if we have valid labels
                     if zoom_yolo_labels:
                         all_data.append({
-                            'bin_file': bin_file,
+                        'bin_file': bin_file,
                             'bev_image': zoom_bev_image,
                             'yolo_labels': zoom_yolo_labels,
                             'augmentation': f'zoom_{region["name"]}'
                         })
                     
                     # Save verification image
-                    if bin_idx < 5:
+                if bin_idx < 5:
                         verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_zoom_{region['name']}.png")
                         cv2.imwrite(verify_path, zoom_bev_image)
-                
+
+               
+
                 print(f"Created {len(all_data) - 1} augmented samples for {os.path.basename(bin_file)}")
             
         except Exception as e:
@@ -1385,7 +1382,7 @@ def train_from_checkpoint(bin_dir, label_dir, config_path, output_dir, checkpoin
                             'yolo_labels': scaled_yolo_labels,
                             'augmentation': f'scale_{scale}'
                         })
-                    
+                
                     # Save verification image if needed
                     if bin_idx < 5:
                         verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_scale_{scale}.png")
@@ -1475,7 +1472,7 @@ def train_from_checkpoint(bin_dir, label_dir, config_path, output_dir, checkpoin
                         })
                     
                     # Save verification image
-                    if bin_idx < 5:
+                if bin_idx < 5:
                         verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_zoom_{region['name']}.png")
                         cv2.imwrite(verify_path, zoom_bev_image)
                 
@@ -1646,9 +1643,9 @@ def main():
                         help='Continue training from a checkpoint')
     parser.add_argument('--checkpoint_path', type=str, default='/lidar3d_detection_ws/train/output/best.pt',
                         help='Path to checkpoint for continuing training')
-    
+
     args = parser.parse_args()
-    
+
     # Handle device selection - auto-detect if set to "auto"
     if args.device == "auto":
         args.device = "cuda:0" if torch.cuda.is_available() else "cpu"

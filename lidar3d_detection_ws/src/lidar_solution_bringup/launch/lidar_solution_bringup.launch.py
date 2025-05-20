@@ -29,12 +29,12 @@ def generate_launch_description():
             output='screen',
             parameters=[params_file_path]
         ),
-        Node(
-            package='pointcloud_saver',
-            executable='pointcloud_saver_node',
-            name='pointcloud_saver_node',
-            output='screen',
-            parameters=[params_file_path]
-        ),
+        # Node(
+        #     package='pointcloud_saver',
+        #     executable='pointcloud_saver_node',
+        #     name='pointcloud_saver_node',
+        #     output='screen',
+        #     parameters=[params_file_path]
+        # ),
       
     ])

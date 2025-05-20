@@ -4,8 +4,8 @@ lidar_tf_position_publisher_node:
     lidar_frame: innoviz
     lidar_pitch: 0.1
     lidar_roll: 0.0
-    lidar_yaw: -0.0
-    lidar_x: -0.0
+    lidar_yaw: 0.0
+    lidar_x: 0.0
     lidar_y: 0.0
-    lidar_z: 2.0
+    lidar_z: 2.4
     tf_hz: 1.0
