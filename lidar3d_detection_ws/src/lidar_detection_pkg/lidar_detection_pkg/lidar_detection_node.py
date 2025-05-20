@@ -38,8 +38,7 @@ try:
     from train.data_processing.preproccesing_0 import PointCloudProcessor
 except ImportError as e:
     print(f"Error importing modules: {e}")
-    print(f"Current sys.path: {sys.path}")
-    raise
+    sys.exit(1)
 
 class LidarDetectionNode(Node):
     def __init__(self):
@@ -50,7 +49,7 @@ class LidarDetectionNode(Node):
         self.declare_parameter('markers_topic', '/detected_objects')
         self.declare_parameter('model_path', '/lidar3d_detection_ws/train/epoch30.pt')
         self.declare_parameter('config_path', '/lidar3d_detection_ws/train/config/preprocessing_config.yaml')
-        self.declare_parameter('confidence_threshold', 0.5)
+        self.declare_parameter('confidence_threshold', 0.01)
         
         # Point cloud filtering parameters
         self.declare_parameter('x_min', 0.0)
@@ -101,22 +100,14 @@ class LidarDetectionNode(Node):
             5: ColorRGBA(r=1.0, g=0.0, b=1.0, a=0.7)   # Truck - magenta
         }
         
-        # We still create processor for other functionality
+        # יצירת הprocessor עם הקונפיג מהקובץ
         self.processor = PointCloudProcessor(config_path=self.config_path)
         
-        # Update processor ranges with ROS parameters
-        self.processor.fwd_range = (self.x_min, self.x_max)
-        self.processor.side_range = (self.y_min, self.y_max)
-        self.processor.height_range = (self.z_min, self.z_max)
-        
-        # Update processor dimensions based on the updated ranges
-        self.processor.x_max = int((self.processor.fwd_range[1] - self.processor.fwd_range[0]) / self.processor.resolution)
-        self.processor.y_max = int((self.processor.side_range[1] - self.processor.side_range[0]) / self.processor.resolution)
-        self.processor.z_max = int((self.processor.height_range[1] - self.processor.height_range[0]) / self.processor.z_resolution)
-        
-        # Force BEV dimensions to match model input size (presumably 640x640)
-        self.processor.bev_height = 640
-        self.processor.bev_width = 640
+        # שים לב! לא לשנות את ה-bev_height ו-bev_width של ה-processor
+        # יש להשתמש בערכים מהקובץ בדיוק כמו באימון
+        # אין לשנות את הערכים הבאים:
+        # self.processor.bev_height = 640
+        # self.processor.bev_width = 640
         
         # Initialize CV Bridge for publishing images
         self.bridge = CvBridge()
@@ -176,46 +167,32 @@ class LidarDetectionNode(Node):
                     t = trans.transform.translation
                     
                     # Convert quaternion to rotation matrix
-                    quat = [q.x, q.y, q.z, q.w]
-                    rot_matrix = Rotation.from_quat(quat).as_matrix()
+                    r = Rotation.from_quat([q.x, q.y, q.z, q.w])
+                    rotation_matrix = r.as_matrix()
                     
-                    # Apply transformation in vectorized form
-                    # First apply rotation
+                    # Apply rotation and translation to all points at once
                     points_xyz = points[:, :3]
                     points_intensity = points[:, 3:]
                     
-                    # Apply rotation in vectorized form
-                    transformed_points_xyz = np.dot(points_xyz, rot_matrix.T)
-                    
-                    # Apply translation in vectorized form
-                    transformed_points_xyz[:, 0] += t.x
-                    transformed_points_xyz[:, 1] += t.y
-                    transformed_points_xyz[:, 2] += t.z
+                    # Rotate and translate
+                    points_transformed = np.dot(points_xyz, rotation_matrix.T) + np.array([t.x, t.y, t.z])
                     
                     # Combine back with intensity
-                    points = np.hstack((transformed_points_xyz, points_intensity))
+                    points = np.hstack((points_transformed, points_intensity))
                     
-                    self.get_logger().info(f"Transformed {len(points)} points from {msg.header.frame_id} to world frame")
+                    self.get_logger().info(f"Transformed {len(points)} points to world frame")
                     
-                    # Create a fresh header
-                    header = Header()
-                    header.stamp = msg.header.stamp
-                    header.frame_id = 'world'
                 except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-                    self.get_logger().error(f"Failed to transform points: {str(e)}")
-                    # אם אין טרנספורמציה, נשתמש בנקודות המקוריות ונשנה את ה-frame_id
-                    self.get_logger().warn("Using original points and changing frame_id to 'world'")
-                    # Create a fresh header
-                    header = Header()
-                    header.stamp = msg.header.stamp
-                    header.frame_id = 'world'
-            else:
-                # Create a fresh header
-                header = Header()
-                header.stamp = msg.header.stamp
-                header.frame_id = 'world'
+                    self.get_logger().error(f"TF Error: {e}")
+                    return
             
-            # Filter points based on our defined range parameters
+            # Log point stats before filtering
+            self.get_logger().info(f"Original points: {points.shape[0]}")
+            self.get_logger().info(f"X range: {np.min(points[:,0]):.2f} to {np.max(points[:,0]):.2f}")
+            self.get_logger().info(f"Y range: {np.min(points[:,1]):.2f} to {np.max(points[:,1]):.2f}")
+            self.get_logger().info(f"Z range: {np.min(points[:,2]):.2f} to {np.max(points[:,2]):.2f}")
+            
+            # Filter points based on spatial range
             mask = (
                 (points[:, 0] >= self.x_min) & (points[:, 0] <= self.x_max) &
                 (points[:, 1] >= self.y_min) & (points[:, 1] <= self.y_max) &
@@ -227,28 +204,32 @@ class LidarDetectionNode(Node):
                 self.get_logger().warn("No points left after filtering - using original points")
                 filtered_points = points  # Fall back to unfiltered points for debugging
             
-            # Log point stats before passing to processor
+            # Log point stats after filtering
             self.get_logger().info(f"Filtered points: {filtered_points.shape[0]}")
             self.get_logger().info(f"X range: {np.min(filtered_points[:,0]):.2f} to {np.max(filtered_points[:,0]):.2f}")
             self.get_logger().info(f"Y range: {np.min(filtered_points[:,1]):.2f} to {np.max(filtered_points[:,1]):.2f}")
             self.get_logger().info(f"Z range: {np.min(filtered_points[:,2]):.2f} to {np.max(filtered_points[:,2]):.2f}")
             
-            # Create BEV image using PointCloudProcessor's create_bev_image
-            bev_image = self.processor.create_bev_image(filtered_points)
+            # השתמש באובייקט הprocessor בדיוק כמו ב-train.py
+            bev_img = self.processor.create_bev_image(filtered_points)
             
-            # Ensure image is uint8, not float32
-            if bev_image.dtype != np.uint8:
-                self.get_logger().info(f"Converting BEV image from {bev_image.dtype} to uint8")
-                bev_image = (bev_image * 255).clip(0, 255).astype(np.uint8)
+            # הדפסת מידע על התמונה
+            self.get_logger().info(f"BEV image shape: {bev_img.shape}")
             
-            # Save BEV image to file for visualization
-            timestamp = msg.header.stamp.sec * 1000 + msg.header.stamp.nanosec // 1000000
-            image_path = f"/lidar3d_detection_ws/bev_image_{timestamp}.png"
-            cv2.imwrite(image_path, bev_image)
-            self.get_logger().info(f"Saved BEV image to {image_path}")
+            # שמור רק תמונה אחת - תמיד באותו שם קובץ
+            try:
+                cv2.imwrite(f"{project_dir}/bev_image_latest.png", bev_img)
+                self.get_logger().info(f"Saved BEV image to {project_dir}/bev_image_latest.png")
+            except Exception as e:
+                self.get_logger().error(f"Error saving BEV image: {e}")
             
-            # Run inference with YOLO model
-            results = self.model.predict(bev_image, conf=self.confidence_threshold)
+            # כעת, בצע את הפרדיקציה על התמונה המעובדת
+            results = self.model.predict(
+                source=bev_img,
+                conf=self.confidence_threshold,
+                iou=0.5,  # כמו ב-evaluate.py
+                verbose=True  # שינוי ל-True כדי לראות יותר פרטים
+            )
             
             # Check if we have any detections
             if not results or len(results) == 0 or not hasattr(results[0], 'boxes') or len(results[0].boxes) == 0:
@@ -261,7 +242,7 @@ class LidarDetectionNode(Node):
                 # Delete any previous markers
                 delete_marker = Marker()
                 delete_marker.action = Marker.DELETEALL
-                delete_marker.header = header
+                delete_marker.header = msg.header
                 markers.markers.append(delete_marker)
                 
                 # Publish empty markers
@@ -272,7 +253,7 @@ class LidarDetectionNode(Node):
                 
                 # Save detected image
                 det_image = results[0].plot()
-                det_image_path = f"/lidar3d_detection_ws/bev_image_detections_{timestamp}.png"
+                det_image_path = f"/lidar3d_detection_ws/bev_image_detections_latest.png"
                 cv2.imwrite(det_image_path, det_image)
                 self.get_logger().info(f"Saved detection image to {det_image_path}")
                 
@@ -287,15 +268,15 @@ class LidarDetectionNode(Node):
                     self.get_logger().info(f"Box coords: ({x1:.1f}, {y1:.1f}), ({x2:.1f}, {y2:.1f})")
                 
                 # Process results and create 3D markers
-                markers = self.create_3d_markers(results[0], filtered_points, header)
+                markers = self.create_3d_markers(results[0], filtered_points, msg.header)
                 
                 # Publish markers
                 self.marker_pub.publish(markers)
             
             # Also publish BEV image
             try:
-                img_msg = self.bridge.cv2_to_imgmsg(bev_image, encoding="bgr8")
-                img_msg.header = header
+                img_msg = self.bridge.cv2_to_imgmsg(bev_img, encoding="bgr8")
+                img_msg.header = msg.header
                 self.bev_image_pub.publish(img_msg)
             except Exception as e:
                 self.get_logger().error(f"Failed to publish BEV image: {str(e)}")

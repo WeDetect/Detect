@@ -7,5 +7,5 @@ lidar_tf_position_publisher_node:
     lidar_yaw: 0.0
     lidar_x: 0.0
     lidar_y: 0.0
-    lidar_z: 2.4
+    lidar_z: 2.0
     tf_hz: 1.0

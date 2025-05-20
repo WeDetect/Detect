@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'lidar_detection_node = lidar_detection_pkg.lidar_detection_node:main',
+            'bin_publisher_node = lidar_detection_pkg.bin_publisher_node:main',
         ],
     },
 )
