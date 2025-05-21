@@ -16,7 +16,7 @@ class BinPublisherNode(Node):
         super().__init__('bin_publisher_node')
         
         # Declare parameters
-        self.declare_parameter('bin_directory', '/lidar3d_detection_ws/data/innoviz')
+        self.declare_parameter('bin_directory', '/lidar3d_detection_ws/data/augmented')
         self.declare_parameter('output_topic', '/lidar_streamer_first_reflection')
         self.declare_parameter('publish_rate', 1.0)  # Hz
         self.declare_parameter('frame_id', 'world')
