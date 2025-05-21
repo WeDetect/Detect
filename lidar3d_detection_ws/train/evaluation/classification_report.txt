@@ -1,42 +1,33 @@
 Classification Report
 =====================
 
-Model: /lidar3d_detection_ws/train/epoch30.pt
+Model: /lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/best.pt
 Confidence threshold: 0.25
 IoU threshold: 0.5
 
 Class-wise Performance:
 ----------------------
 Car:
-  Precision: 0.9983
-  Recall: 0.9948
-  F1-Score: 0.9966
-  Support: 581
-  Average IoU: 0.9663
+  Precision: 1.0000
+  Recall: 1.0000
+  F1-Score: 1.0000
+  Support: 46
+  Average IoU: 0.8612
 
 Pedestrian:
-  Precision: 1.0000
-  Recall: 0.9427
-  F1-Score: 0.9705
-  Support: 349
-  Average IoU: 0.9370
+  Precision: 0.0000
+  Recall: 0.0000
+  F1-Score: 0.0000
+  Support: 10
 
 Cyclist:
-  Precision: 0.7857
-  Recall: 1.0000
-  F1-Score: 0.8800
-  Support: 11
-  Average IoU: 0.8932
-
-Truck:
-  Precision: 1.0000
-  Recall: 0.4127
-  F1-Score: 0.5843
-  Support: 63
-  Average IoU: 0.6411
+  Precision: 0.0000
+  Recall: 0.0000
+  F1-Score: 0.0000
+  Support: 1
 
 Overall Performance:
 -------------------
-Average Precision: 0.9460
-Average Recall: 0.8376
-Macro Avg F1-Score: 0.8578
+Average Precision: 0.3333
+Average Recall: 0.3333
+Macro Avg F1-Score: 0.3333

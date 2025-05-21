@@ -536,8 +536,20 @@ class RangeSpecificProcessor:
         # Create a colored height map for better visualization
         height_map = np.zeros((self.x_max + 1, self.y_max + 1, 3), dtype=np.uint8)
         
-        # Assign different colors based on height
+        # Define floor height range (-0.5m to 0.3m)
+        floor_min_height = -2.0
+        floor_max_height = 0.3
+        
+        # Calculate which height slices correspond to the floor
+        floor_min_idx = max(0, int((floor_min_height - self.height_range[0]) / self.z_resolution))
+        floor_max_idx = min(self.z_max, int((floor_max_height - self.height_range[0]) / self.z_resolution))
+        
+        # Assign different colors based on height, but make floor points black
         for i in range(self.z_max):
+            # Skip floor points - they will remain black (0,0,0)
+            if i >= floor_min_idx and i <= floor_max_idx:
+                continue
+            
             # Create a color gradient from blue (lower) to red (higher)
             b = max(0, 255 - (i * 255 // self.z_max))
             r = min(255, i * 255 // self.z_max)

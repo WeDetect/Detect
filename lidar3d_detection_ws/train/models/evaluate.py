@@ -25,76 +25,95 @@ sys.path.append(parent_dir)
 # Import from our other modules
 from data_processing.preprocessing import load_config, read_bin_file, read_label_file, create_bev_image
 from data_processing.preproccesing_0 import convert_labels_to_yolo_format, PointCloudProcessor
+from data_processing.augmentation import create_range_adapted_bev_image
 
 def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir, conf_threshold=0.25, iou_threshold=0.5, max_samples=10):
     """
-    Evaluate a trained model on bin files
+    Evaluate a trained YOLO model on BEV images
     
     Args:
         model_path: Path to trained model weights
         bin_dir: Directory containing bin files
         label_dir: Directory containing label files
-        config_path: Path to config file
+        config_path: Path to preprocessing config file
         output_dir: Output directory for evaluation results
         conf_threshold: Confidence threshold for detections
-        iou_threshold: IoU threshold for NMS
-        max_samples: Maximum number of samples to evaluate and visualize
+        iou_threshold: IoU threshold for NMS and TP calculation
+        max_samples: Maximum number of samples to evaluate
         
     Returns:
-        Dictionary with evaluation metrics
+        Dictionary of evaluation metrics
     """
     print("\n===== EVALUATING MODEL =====")
-    print(f"Using model: {model_path}")
-    print(f"Using bin directory: {bin_dir}")
-    print(f"Using label directory: {label_dir}")
+    print(f"Model: {model_path}")
+    print(f"Bin directory: {bin_dir}")
+    print(f"Label directory: {label_dir}")
+    print(f"Config path: {config_path}")
+    print(f"Output directory: {output_dir}")
     print(f"Confidence threshold: {conf_threshold}")
+    print(f"IoU threshold: {iou_threshold}")
+    print(f"Max samples: {max_samples}")
     
     # Create output directories
     os.makedirs(output_dir, exist_ok=True)
-    visualization_dir = os.path.join(output_dir, "evaluation_visualization")
+    visualization_dir = os.path.join(output_dir, "visualization")
     os.makedirs(visualization_dir, exist_ok=True)
-    
-    # Initialize processor
-    processor = PointCloudProcessor(config_path=config_path)
     
     # Load model
     model = YOLO(model_path)
     
-    # Get all bin files
-    bin_files = sorted([f for f in os.listdir(bin_dir) if f.endswith('.bin')])
-    if not bin_files:
-        raise ValueError(f"No bin files found in {bin_dir}")
+    # Initialize processor
+    processor = PointCloudProcessor(config_path)
     
-    # Randomly select samples if there are more than max_samples
-    if len(bin_files) > max_samples:
-        bin_files = random.sample(bin_files, max_samples)
+    # Get list of bin files
+    bin_files = sorted([os.path.join(bin_dir, f) for f in os.listdir(bin_dir) if f.endswith('.bin')])
     
-    print(f"Evaluating on {len(bin_files)} samples")
+    # Limit number of samples if needed
+    if max_samples > 0:
+        bin_files = bin_files[:max_samples]
     
-    # Store class statistics
+    # Initialize statistics
     class_stats = defaultdict(lambda: {'TP': 0, 'FP': 0, 'FN': 0})
-    
-    # Lists to store IoU values for each class
-    class_ious = {class_name: [] for class_name in processor.class_names}
+    class_ious = defaultdict(list)
     
     # Process each bin file
-    for i, bin_filename in enumerate(tqdm(bin_files, desc="Evaluating")):
-        bin_file = os.path.join(bin_dir, bin_filename)
-        
-        # Get corresponding label file
-        label_name = os.path.splitext(bin_filename)[0] + ".txt"
-        label_file = os.path.join(label_dir, label_name)
-        
-        if not os.path.exists(label_file):
-            print(f"Warning: Label file {label_file} not found, skipping {bin_file}")
-            continue
-        
-        # Process the point cloud
+    for i, bin_file in enumerate(tqdm(bin_files, desc="Evaluating")):
         try:
-            # Process point cloud to get BEV image and YOLO labels
-            bev_image, yolo_labels_str = processor.process_point_cloud(
-                bin_file, label_file, None, None
-            )
+            # Get corresponding label file
+            base_name = os.path.splitext(os.path.basename(bin_file))[0]
+            label_file = os.path.join(label_dir, f"{base_name}.txt")
+            
+            if not os.path.exists(label_file):
+                print(f"Warning: Label file not found for {bin_file}, skipping")
+                continue
+            
+            # Read point cloud and labels
+            points = read_bin_file(bin_file)
+            labels = read_label_file(label_file)
+            
+            # Create clean BEV image (without boxes) for inference
+            bev_image = processor.create_bev_image(points)
+            
+            # Create YOLO format labels for ground truth
+            yolo_labels = []
+            yolo_labels_str = []
+            
+            for obj in labels:
+                if obj['type'] == 'DontCare':
+                    continue
+                
+                # Transform 3D box to BEV
+                corners_bev, center_bev = processor.transform_3d_box_to_bev(
+                    obj['dimensions'], obj['location'], obj['rotation_y']
+                )
+                
+                # Create YOLO label
+                yolo_label_str = processor.create_yolo_label(
+                    corners_bev, obj['type'], bev_image.shape[:2]
+                )
+                
+                if yolo_label_str:
+                    yolo_labels_str.append(yolo_label_str)
             
             # Skip if no labels
             if not yolo_labels_str:
@@ -126,7 +145,7 @@ def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir, conf
                     gt_boxes.append([x1, y1, x2, y2])
                     gt_classes.append(int(class_id))
             
-            # Run inference
+            # Run inference on the clean BEV image
             results = model.predict(bev_image, conf=conf_threshold, iou=iou_threshold)[0]
             
             # Extract predictions
@@ -188,8 +207,10 @@ def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir, conf
             
             # Create visualization for the first 3 samples
             if i < 3:
-                # Create ground truth image
+                # Create a copy of the clean BEV image for ground truth visualization
                 gt_img = bev_image.copy()
+                
+                # Draw ground truth boxes
                 for gt_box, gt_cls in zip(gt_boxes, gt_classes):
                     x1, y1, x2, y2 = map(int, gt_box)
                     color = processor.colors[processor.class_names[gt_cls]]
@@ -346,28 +367,26 @@ def calculate_iou(box1, box2):
         box2: [x1, y1, x2, y2]
         
     Returns:
-        IoU value
+        IoU score
     """
-    # Get coordinates of intersection
-    x1_inter = max(box1[0], box2[0])
-    y1_inter = max(box1[1], box2[1])
-    x2_inter = min(box1[2], box2[2])
-    y2_inter = min(box1[3], box2[3])
+    # Calculate intersection area
+    x_left = max(box1[0], box2[0])
+    y_top = max(box1[1], box2[1])
+    x_right = min(box1[2], box2[2])
+    y_bottom = min(box1[3], box2[3])
     
-    # Calculate area of intersection
-    width_inter = max(0, x2_inter - x1_inter)
-    height_inter = max(0, y2_inter - y1_inter)
-    area_inter = width_inter * height_inter
+    if x_right < x_left or y_bottom < y_top:
+        return 0.0
     
-    # Calculate area of both boxes
-    area_box1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    area_box2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    intersection_area = (x_right - x_left) * (y_bottom - y_top)
     
-    # Calculate area of union
-    area_union = area_box1 + area_box2 - area_inter
+    # Calculate union area
+    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union_area = box1_area + box2_area - intersection_area
     
     # Calculate IoU
-    iou = area_inter / area_union if area_union > 0 else 0
+    iou = intersection_area / union_area if union_area > 0 else 0
     
     return iou
 
