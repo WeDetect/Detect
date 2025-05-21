@@ -677,20 +677,36 @@ def demonstrate_range_filtering(points, labels, processor, original_bev, config,
             continue
         
         # Create BEV image with adaptive resolution to fill the entire view
-        adapted_bev, _ = create_range_adapted_bev_image(
+        # Now returns both clean and labeled images
+        bev_clean, bev_with_boxes, yolo_labels = create_range_adapted_bev_image(
             points, labels, x_min, x_max, y_min, y_max, config)
         
-        # Create side-by-side comparison
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        combined_vis = np.hstack((display_original, adapted_bev))
+        print(f"    Generated {len(yolo_labels)} YOLO labels")
         
-        # Add information text
-        cv2.putText(combined_vis, "Original", (10, 30), font, 0.8, (255, 255, 255), 2)
-        cv2.putText(combined_vis, f"Filtered & Scaled: {desc}", 
+        # Create side-by-side comparison of original vs clean vs with boxes
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        # First show original vs clean
+        combined_vis1 = np.hstack((display_original, bev_clean))
+        cv2.putText(combined_vis1, "Original", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(combined_vis1, f"Filtered & Scaled (Clean): {desc}", 
                    (display_original.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
         
         # Display the comparison
-        cv2.imshow(window_name, combined_vis)
+        cv2.imshow(window_name, combined_vis1)
+        key = cv2.waitKey(2000)  # Show for 2 seconds
+        if key == 27:  # ESC
+            cv2.destroyWindow(window_name)
+            return
+            
+        # Then show clean vs with boxes
+        combined_vis2 = np.hstack((bev_clean, bev_with_boxes))
+        cv2.putText(combined_vis2, "Clean BEV", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(combined_vis2, f"With Bounding Boxes: {desc}", 
+                   (bev_clean.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        
+        # Display the comparison
+        cv2.imshow(window_name, combined_vis2)
         
         # Wait for 4 seconds or key press
         key = cv2.waitKey(4000)
@@ -814,6 +830,157 @@ def visualize_with_filled_boxes():
     
     cv2.destroyAllWindows()
 
+def visualize_zoomed_regions():
+    """Visualize zoomed-in regions of a point cloud with and without bounding boxes"""
+    print("Visualizing zoomed-in regions of point cloud...")
+    
+    # Define the paths to the bin and label files
+    bin_file = '/lidar3d_detection_ws/data/innoviz/00010.bin'
+    label_file = '/lidar3d_detection_ws/data/labels/00010.txt'
+    config_path = "/lidar3d_detection_ws/train/config/preprocessing_config.yaml"
+    
+    # Check if files exist
+    if not os.path.exists(bin_file):
+        print(f"Error: Bin file not found: {bin_file}")
+        return
+    if not os.path.exists(label_file):
+        print(f"Error: Label file not found: {label_file}")
+        return
+    if not os.path.exists(config_path):
+        print(f"Error: Config file not found: {config_path}")
+        return
+    
+    print(f"Using point cloud file: {bin_file}")
+    print(f"Using label file: {label_file}")
+    
+    # Load config
+    config = load_config(config_path)
+    
+    # Load point cloud and labels
+    points = read_bin_file(bin_file)
+    labels = read_label_file(label_file)
+    
+    # Create processor for full view
+    processor = create_processor()
+    
+    # Create full BEV image for reference
+    full_bev, _ = processor.process_point_cloud(bin_file, label_file)
+    
+    # Define zoom regions to visualize
+    # Format: (x_min, x_max, y_min, y_max, description)
+    zoom_regions = [
+        (0, 10, -5, 5, "Close range (0-10m forward, ±5m lateral)"),
+        (10, 20, -10, 10, "Medium range (10-20m forward, ±10m lateral)"),
+        (20, 40, -15, 15, "Far range (20-40m forward, ±15m lateral)"),
+        (0, 50, -3, 3, "Center corridor (0-50m forward, ±3m lateral)")
+    ]
+    
+    # Create window
+    window_name = "Zoomed BEV Regions"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1200, 600)
+    
+    # Show full BEV first
+    full_bev_display = full_bev.copy()
+    cv2.putText(full_bev_display, "Full BEV Image (Auto-advancing in 2 seconds)", 
+               (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    cv2.imshow(window_name, full_bev_display)
+    print("Showing full BEV image. Auto-advancing in 2 seconds...")
+    
+    # Wait for 2 seconds, but still allow ESC to exit
+    key = cv2.waitKey(2000)
+    if key == 27:  # ESC
+        cv2.destroyAllWindows()
+        return
+    
+    for x_min, x_max, y_min, y_max, desc in zoom_regions:
+        print(f"\nZooming to region: {desc}")
+        
+        # Create BEV images for this region
+        bev_clean, bev_with_boxes, yolo_labels = create_range_adapted_bev_image(
+            points, labels, x_min, x_max, y_min, y_max, config)
+        
+        print(f"  Generated {len(yolo_labels)} YOLO labels")
+        for label in yolo_labels:
+            print(f"    {label}")
+        
+        # Make sure we have valid images
+        if bev_clean is None or bev_with_boxes is None:
+            print("  Error: Failed to create BEV images for this region")
+            continue
+            
+        print(f"  Clean BEV shape: {bev_clean.shape}, With boxes shape: {bev_with_boxes.shape}")
+        
+        # First show: Original vs Clean Zoomed
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        # Resize images to same height if needed
+        if full_bev.shape[0] != bev_clean.shape[0]:
+            display_height = 400
+            h, w = full_bev.shape[:2]
+            scale = display_height / h
+            full_display = cv2.resize(full_bev, (int(w * scale), display_height))
+            
+            h, w = bev_clean.shape[:2]
+            scale = display_height / h
+            clean_display = cv2.resize(bev_clean, (int(w * scale), display_height))
+        else:
+            full_display = full_bev.copy()
+            clean_display = bev_clean.copy()
+        
+        # Create side-by-side comparison
+        comparison1 = np.hstack((full_display, clean_display))
+        
+        # Add text labels
+        cv2.putText(comparison1, "Original Full BEV", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(comparison1, f"Zoomed Clean BEV: {desc}", 
+                   (full_display.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(comparison1, "Auto-advancing in 2 seconds...", 
+                   (10, full_display.shape[0] - 10), font, 0.6, (255, 255, 255), 1)
+        
+        # Show the comparison
+        cv2.imshow(window_name, comparison1)
+        print("  Showing Original vs Clean Zoomed. Auto-advancing in 2 seconds...")
+        
+        # Wait for 2 seconds, but still allow ESC to exit
+        key = cv2.waitKey(2000)
+        if key == 27:  # ESC
+            break
+            
+        # Then show: Clean Zoomed vs With Boxes
+        if bev_clean.shape[0] != bev_with_boxes.shape[0]:
+            h, w = bev_clean.shape[:2]
+            scale = display_height / h
+            clean_display = cv2.resize(bev_clean, (int(w * scale), display_height))
+            
+            h, w = bev_with_boxes.shape[:2]
+            scale = display_height / h
+            boxes_display = cv2.resize(bev_with_boxes, (int(w * scale), display_height))
+        else:
+            clean_display = bev_clean.copy()
+            boxes_display = bev_with_boxes.copy()
+        
+        # Create side-by-side comparison
+        comparison2 = np.hstack((clean_display, boxes_display))
+        
+        # Add text labels
+        cv2.putText(comparison2, "Zoomed Clean BEV", (10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(comparison2, f"Zoomed BEV with Boxes: {desc}", 
+                   (clean_display.shape[1] + 10, 30), font, 0.8, (255, 255, 255), 2)
+        cv2.putText(comparison2, "Auto-advancing in 2 seconds...", 
+                   (10, clean_display.shape[0] - 10), font, 0.6, (255, 255, 255), 1)
+        
+        # Show the comparison
+        cv2.imshow(window_name, comparison2)
+        print("  Showing Clean Zoomed vs With Boxes. Auto-advancing in 2 seconds...")
+        
+        # Wait for 2 seconds, but still allow ESC to exit
+        key = cv2.waitKey(2000)
+        if key == 27:  # ESC
+            break
+    
+    cv2.destroyAllWindows()
+
 def main():
     print("Point Cloud BEV Visualization")
     print("Choose an option:")
@@ -823,8 +990,9 @@ def main():
     print("4: Demonstrate augmentation techniques")
     print("5: Visualize dataset without bounding boxes")
     print("6: Visualize all files in dataset with filled bounding boxes")
+    print("7: Visualize zoomed-in regions with and without bounding boxes")
     
-    choice = input("Enter your choice (1-6): ")
+    choice = input("Enter your choice (1-7): ")
     
     if choice == '1':
         visualize_specific_file()
@@ -838,6 +1006,8 @@ def main():
         visualize_without_bounding_boxes()
     elif choice == '6':
         visualize_with_filled_boxes()
+    elif choice == '7':
+        visualize_zoomed_regions()
     else:
         print("Invalid choice!")
 

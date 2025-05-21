@@ -340,7 +340,8 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
         config: Configuration dictionary
     
     Returns:
-        adapted_bev: BEV image that maximizes the use of available space
+        bev_clean: BEV image without labels
+        bev_with_boxes: BEV image with labeled bounding boxes
         yolo_labels: YOLO format labels
     """
     # Get the output dimensions
@@ -361,258 +362,58 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
     resolution_y = y_range / Width   # Width for y because of the coordinate conversion
     resolution = max(resolution_x, resolution_y)  # Use the max to maintain aspect ratio
     
-    # Create a custom processor class for this specific range
-    class RangeSpecificProcessor:
-        def __init__(self):
-            # Fixed dimensions based on the range
-            self.x_max = Height - 1
-            self.y_max = Width - 1
-            self.z_max = int((z_max - z_min) / z_resolution)
-            
-            # Store range parameters
-            self.fwd_range = [x_min, x_max]
-            self.side_range = [y_min, y_max]
-            self.height_range = [z_min, z_max]
-            self.resolution = resolution
-            self.z_resolution = z_resolution
-            
-            # Color mapping for different object types (same as in preprocessing_0.py)
-            self.color_map = {
-                'Car': (0, 0, 255),        # Red
-                'Pedestrian': (0, 255, 0), # Green
-                'Cyclist': (255, 0, 0),    # Blue
-                'Van': (255, 0, 255),      # Magenta
-                'Truck': (255, 255, 0),    # Cyan
-                'Person': (0, 255, 255),   # Yellow
-                'Tram': (128, 128, 255),   # Pink
-                'Misc': (128, 128, 128)    # Gray
-            }
-        
-        def create_bev_image(self, points):
-            """Create a BEV image from points (same logic as in preprocessing_0.py)"""
-            # Initialize BEV image array
-            bev_image = np.zeros((self.x_max + 1, self.y_max + 1, self.z_max + 2), dtype=np.float32)
-            
-            # Extract point coordinates
-            x_points = points[:, 0]
-            y_points = points[:, 1]
-            z_points = points[:, 2]
-            intensity = points[:, 3]
-            
-            # Filter points that are within the specified ranges
-            f_filter = np.logical_and((x_points > self.fwd_range[0]), (x_points < self.fwd_range[1]))
-            s_filter = np.logical_and((y_points > self.side_range[0]), (y_points < self.side_range[1]))
-            filt = np.logical_and(f_filter, s_filter)
-            z_filter = np.logical_and((z_points > self.height_range[0]), (z_points < self.height_range[1]))
-            filt = np.logical_and(filt, z_filter)
-            
-            # Extract filtered points
-            indices = np.where(filt)[0]
-            x_filt = x_points[indices]
-            y_filt = y_points[indices]
-            z_filt = z_points[indices]
-            intensity_filt = intensity[indices]
-            
-            # Convert coordinates to pixel positions
-            x_img = (-y_filt / self.resolution).astype(np.int32)
-            y_img = (-x_filt / self.resolution).astype(np.int32)
-            
-            # Shift coordinates to image space
-            x_img -= int(np.floor(self.side_range[0] / self.resolution))
-            y_img += int(np.floor(self.fwd_range[1] / self.resolution))
-            
-            # Height slices
-            for i, height in enumerate(np.arange(self.height_range[0], self.height_range[1], self.z_resolution)):
-                z_slice = np.logical_and((z_filt >= height), (z_filt < height + self.z_resolution))
-                if np.any(z_slice):
-                    z_indices = np.where(z_slice)[0]
-                    # Make sure indices are within bounds
-                    valid_indices = (x_img[z_indices] >= 0) & (x_img[z_indices] <= self.y_max) & \
-                                   (y_img[z_indices] >= 0) & (y_img[z_indices] <= self.x_max)
-                    valid_z_indices = z_indices[valid_indices]
-                    if len(valid_z_indices) > 0:
-                        bev_image[y_img[valid_z_indices], x_img[valid_z_indices], i] = 1
-            
-            # Add intensity channel (with bounds checking)
-            valid_indices = (x_img >= 0) & (x_img <= self.y_max) & (y_img >= 0) & (y_img <= self.x_max)
-            valid_idx = np.where(valid_indices)[0]
-            if len(valid_idx) > 0:
-                bev_image[y_img[valid_idx], x_img[valid_idx], -1] = intensity_filt[valid_idx] / 255.0
-            
-            # Create a colored height map for better visualization
-            height_map = np.zeros((self.x_max + 1, self.y_max + 1, 3), dtype=np.uint8)
-            
-            # Assign different colors based on height
-            for i in range(self.z_max):
-                # Create a color gradient from blue (lower) to red (higher)
-                b = max(0, 255 - (i * 255 // self.z_max))
-                r = min(255, i * 255 // self.z_max)
-                g = min(100, i * 100 // self.z_max)
-                
-                mask = bev_image[:, :, i] > 0
-                height_map[mask, 0] = r
-                height_map[mask, 1] = g
-                height_map[mask, 2] = b
-            
-            # Use intensity for empty cells
-            empty = np.sum(bev_image[:, :, :-1], axis=2) == 0
-            intensity_map = (bev_image[:, :, -1] * 255).astype(np.uint8)
-            height_map[empty, 0] = intensity_map[empty]
-            height_map[empty, 1] = intensity_map[empty]
-            height_map[empty, 2] = intensity_map[empty]
-            
-            return height_map
-        
-        def transform_3d_box_to_bev(self, dimensions, location, rotation_y):
-            """Transform 3D box to BEV coordinates (same as in preprocessing_0.py)"""
-            # Extract dimensions
-            h, w, l = dimensions
-            x, y, z = location
-            
-            # Calculate 3D box corners - תיקון: שימוש נכון ברוחב ואורך
-            corners_3d = np.array([
-                [l/2, w/2, 0],   # front-right
-                [l/2, -w/2, 0],  # front-left
-                [-l/2, -w/2, 0], # back-left
-                [-l/2, w/2, 0]   # back-right
-            ])
-            
-            # Rotation matrix
-            R = np.array([
-                [np.cos(rotation_y), 0, np.sin(rotation_y)],
-                [0, 1, 0],
-                [-np.sin(rotation_y), 0, np.cos(rotation_y)]
-            ])
-            
-            # Apply rotation and translation
-            corners_3d = np.dot(R, corners_3d.T).T
-            corners_3d[:, 0] += x
-            corners_3d[:, 1] += y
-            corners_3d[:, 2] += z
-            
-            # Transform to BEV image coordinates
-            x_img = (-corners_3d[:, 1] / self.resolution).astype(np.int32)
-            y_img = (-corners_3d[:, 0] / self.resolution).astype(np.int32)
-            
-            # Shift to image coordinates for the specific range
-            x_img -= int(np.floor(self.side_range[0] / self.resolution))
-            y_img += int(np.floor(self.fwd_range[1] / self.resolution))
-            
-            # Center point in BEV
-            center_x = (-y / self.resolution) - int(np.floor(self.side_range[0] / self.resolution))
-            center_y = (-x / self.resolution) + int(np.floor(self.fwd_range[1] / self.resolution))
-            
-            corners_bev = list(zip(x_img, y_img))
-            center_bev = (int(center_x), int(center_y))
-            
-            return corners_bev, center_bev
-        
-        def draw_box_on_bev(self, bev_image, corners_bev, center_bev, obj_type):
-            """Draw bounding box on BEV image (same as in preprocessing_0.py)"""
-            # Create a copy of the image to draw on
-            bev_with_box = bev_image.copy()
-            
-            # Get color for this object type
-            color = self.color_map.get(obj_type, (255, 255, 255))  # Default: white
-            
-            # Convert corners to numpy array for drawing
-            corners_np = np.array(corners_bev, dtype=np.int32)
-            
-            # Draw filled polygon with transparency
-            overlay = bev_with_box.copy()
-            cv2.fillPoly(overlay, [corners_np], color)
-            
-            # Apply the overlay with transparency
-            alpha = 0.3  # Transparency factor
-            cv2.addWeighted(overlay, alpha, bev_with_box, 1 - alpha, 0, bev_with_box)
-            
-            # Connect corners with lines
-            for i in range(4):
-                cv2.line(bev_with_box, 
-                          corners_bev[i], 
-                          corners_bev[(i+1)%4], 
-                          color, 
-                          2)
-            
-            # Draw center point
-            cv2.circle(bev_with_box, center_bev, 3, color, -1)
-            
-            # Add label
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            cv2.putText(bev_with_box, obj_type, 
-                      (center_bev[0], center_bev[1] - 10), 
-                      font, 0.5, color, 2)
-            
-            return bev_with_box
-        
-        def create_yolo_label(self, corners_bev, obj_type, img_shape=(608, 608)):
-            """Create YOLO format label based on BEV corners (enhanced from preprocessing_0.py)"""
-            # Get image dimensions
-            img_height, img_width = img_shape
-            
-            # Convert corners to numpy array
-            corners = np.array(corners_bev)
-            
-            # Calculate bounding box
-            x_min = np.min(corners[:, 0])
-            y_min = np.min(corners[:, 1])
-            x_max = np.max(corners[:, 0])
-            y_max = np.max(corners[:, 1])
-            
-            # Ensure the box has width and height
-            if x_max <= x_min:
-                x_max = x_min + 1
-            if y_max <= y_min:
-                y_max = y_min + 1
-            
-            # Calculate center and dimensions (YOLO format)
-            x_center = (x_min + x_max) / 2
-            y_center = (y_min + y_max) / 2
-            width = x_max - x_min
-            height = y_max - y_min
-            
-            # Normalize coordinates (YOLO format)
-            x_center_norm = x_center / img_width
-            y_center_norm = y_center / img_height
-            width_norm = width / img_width
-            height_norm = height / img_height
-            
-            # Map class to ID
-            class_id = 0  # Default to Car
-            if obj_type == 'Pedestrian':
-                class_id = 1
-            elif obj_type == 'Cyclist':
-                class_id = 2
-            elif obj_type == 'Truck':
-                class_id = 3
-            
-            # Create YOLO label string
-            yolo_label = f"{class_id} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}"
-            
-            return yolo_label
+    # Create a processor for this specific range
+    processor = RangeSpecificProcessor(x_min, x_max, y_min, y_max, z_min, z_max, 
+                                      z_resolution, Height, Width)
     
-    # Create processor instance for this specific range
-    processor = RangeSpecificProcessor()
+    # Create clean BEV image from points
+    bev_clean = processor.create_bev_image(points)
     
-    # Create BEV image from points
-    bev_image = processor.create_bev_image(points)
+    # If no labels, return clean image and empty labels
+    if not labels:
+        return bev_clean, bev_clean.copy(), []
     
-    # Process labels
+    # Create a copy for drawing boxes
+    bev_with_boxes = bev_clean.copy()
     yolo_labels = []
     
-    if labels:
-        bev_with_boxes = bev_image.copy()
-        
-        for label in labels:
-            if label['type'] == 'DontCare':
-                continue
-                
-            # Get label location
-            x, y, z = label['location']
+    for label in labels:
+        if label['type'] == 'DontCare':
+            continue
             
-            # Skip if not in range
-            if not (x_min <= x <= x_max and y_min <= y <= y_max):
-                continue
+        # Get label dimensions and location
+        h, w, l = label['dimensions']  # height, width, length
+        x, y, z = label['location']    # center coordinates
+        
+        # Calculate the corners of the 3D box (before rotation)
+        # We'll check if any part of the box is within our range
+        corners_3d = np.array([
+            [l/2, w/2, 0],   # front-right
+            [l/2, -w/2, 0],  # front-left
+            [-l/2, -w/2, 0], # back-left
+            [-l/2, w/2, 0]   # back-right
+        ])
+        
+        # Apply rotation
+        rotation_y = label['rotation_y']
+        R = np.array([
+            [np.cos(rotation_y), 0, np.sin(rotation_y)],
+            [0, 1, 0],
+            [-np.sin(rotation_y), 0, np.cos(rotation_y)]
+        ])
+        
+        # Rotate corners and add center position
+        corners_3d = np.dot(R, corners_3d.T).T
+        corners_3d[:, 0] += x
+        corners_3d[:, 1] += y
+        
+        # Check if any corner is within range
+        x_coords = corners_3d[:, 0]
+        y_coords = corners_3d[:, 1]
+        
+        # If any part of the box is within range, include it
+        if (np.any((x_coords >= x_min) & (x_coords <= x_max)) and 
+            np.any((y_coords >= y_min) & (y_coords <= y_max))):
             
             # Transform 3D box to BEV
             corners_bev, center_bev = processor.transform_3d_box_to_bev(
@@ -621,25 +422,265 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
                 label['rotation_y']
             )
             
-            # Make sure box is visible in the image
-            if all((0 <= x < Width and 0 <= y < Height) for x, y in corners_bev):
-                # Draw box on the image
-                bev_with_boxes = processor.draw_box_on_bev(
-                    bev_with_boxes,
-                    corners_bev,
-                    center_bev,
-                    label['type']
-                )
-                
-                # Create YOLO label
-                yolo_label = processor.create_yolo_label(
-                    corners_bev,
-                    label['type'],
-                    (Height, Width)
-                )
-                
-                yolo_labels.append(yolo_label)
-        
-        return bev_with_boxes, yolo_labels
+            # Draw box on the image
+            bev_with_boxes = processor.draw_box_on_bev(
+                bev_with_boxes,
+                corners_bev,
+                center_bev,
+                label['type']
+            )
+            
+            # Create YOLO label
+            yolo_label = processor.create_yolo_label(
+                corners_bev,
+                label['type'],
+                (Height, Width)
+            )
+            
+            yolo_labels.append(yolo_label)
     
-    return bev_image, yolo_labels
+    return bev_clean, bev_with_boxes, yolo_labels
+
+
+class RangeSpecificProcessor:
+    def __init__(self, x_min, x_max, y_min, y_max, z_min, z_max, z_resolution, height, width):
+        """
+        Initialize processor for a specific range
+        
+        Args:
+            x_min, x_max: Forward range boundaries (meters)
+            y_min, y_max: Lateral range boundaries (meters)
+            z_min, z_max: Height range boundaries (meters)
+            z_resolution: Resolution for height slices
+            height, width: Output image dimensions
+        """
+        # Fixed dimensions based on the range
+        self.x_max = height - 1
+        self.y_max = width - 1
+        self.z_max = int((z_max - z_min) / z_resolution)
+        
+        # Store range parameters
+        self.fwd_range = [x_min, x_max]
+        self.side_range = [y_min, y_max]
+        self.height_range = [z_min, z_max]
+        
+        # Calculate resolution to fill the entire image
+        resolution_x = (x_max - x_min) / height
+        resolution_y = (y_max - y_min) / width
+        self.resolution = max(resolution_x, resolution_y)  # Use the max to maintain aspect ratio
+        self.z_resolution = z_resolution
+        
+        # Color mapping for different object types
+        self.color_map = {
+            'Car': (0, 0, 255),        # Red
+            'Pedestrian': (0, 255, 0), # Green
+            'Cyclist': (255, 0, 0),    # Blue
+            'Van': (255, 0, 255),      # Magenta
+            'Truck': (255, 255, 0),    # Cyan
+            'Person': (0, 255, 255),   # Yellow
+            'Tram': (128, 128, 255),   # Pink
+            'Misc': (128, 128, 128)    # Gray
+        }
+    
+    def create_bev_image(self, points):
+        """Create a BEV image from points"""
+        # Initialize BEV image array
+        bev_image = np.zeros((self.x_max + 1, self.y_max + 1, self.z_max + 2), dtype=np.float32)
+        
+        # Extract point coordinates
+        x_points = points[:, 0]
+        y_points = points[:, 1]
+        z_points = points[:, 2]
+        intensity = points[:, 3]
+        
+        # Filter points that are within the specified ranges
+        f_filter = np.logical_and((x_points > self.fwd_range[0]), (x_points < self.fwd_range[1]))
+        s_filter = np.logical_and((y_points > self.side_range[0]), (y_points < self.side_range[1]))
+        filt = np.logical_and(f_filter, s_filter)
+        z_filter = np.logical_and((z_points > self.height_range[0]), (z_points < self.height_range[1]))
+        filt = np.logical_and(filt, z_filter)
+        
+        # Extract filtered points
+        indices = np.where(filt)[0]
+        x_filt = x_points[indices]
+        y_filt = y_points[indices]
+        z_filt = z_points[indices]
+        intensity_filt = intensity[indices]
+        
+        # Convert coordinates to pixel positions
+        x_img = (-y_filt / self.resolution).astype(np.int32)
+        y_img = (-x_filt / self.resolution).astype(np.int32)
+        
+        # Shift coordinates to image space
+        x_img -= int(np.floor(self.side_range[0] / self.resolution))
+        y_img += int(np.floor(self.fwd_range[1] / self.resolution))
+        
+        # Height slices
+        for i, height in enumerate(np.arange(self.height_range[0], self.height_range[1], self.z_resolution)):
+            z_slice = np.logical_and((z_filt >= height), (z_filt < height + self.z_resolution))
+            if np.any(z_slice):
+                z_indices = np.where(z_slice)[0]
+                # Make sure indices are within bounds
+                valid_indices = (x_img[z_indices] >= 0) & (x_img[z_indices] <= self.y_max) & \
+                               (y_img[z_indices] >= 0) & (y_img[z_indices] <= self.x_max)
+                valid_z_indices = z_indices[valid_indices]
+                if len(valid_z_indices) > 0:
+                    bev_image[y_img[valid_z_indices], x_img[valid_z_indices], i] = 1
+        
+        # Add intensity channel (with bounds checking)
+        valid_indices = (x_img >= 0) & (x_img <= self.y_max) & (y_img >= 0) & (y_img <= self.x_max)
+        valid_idx = np.where(valid_indices)[0]
+        if len(valid_idx) > 0:
+            bev_image[y_img[valid_idx], x_img[valid_idx], -1] = intensity_filt[valid_idx] / 255.0
+        
+        # Create a colored height map for better visualization
+        height_map = np.zeros((self.x_max + 1, self.y_max + 1, 3), dtype=np.uint8)
+        
+        # Assign different colors based on height
+        for i in range(self.z_max):
+            # Create a color gradient from blue (lower) to red (higher)
+            b = max(0, 255 - (i * 255 // self.z_max))
+            r = min(255, i * 255 // self.z_max)
+            g = min(100, i * 100 // self.z_max)
+            
+            mask = bev_image[:, :, i] > 0
+            height_map[mask, 0] = r
+            height_map[mask, 1] = g
+            height_map[mask, 2] = b
+        
+        # Use intensity for empty cells
+        empty = np.sum(bev_image[:, :, :-1], axis=2) == 0
+        intensity_map = (bev_image[:, :, -1] * 255).astype(np.uint8)
+        height_map[empty, 0] = intensity_map[empty]
+        height_map[empty, 1] = intensity_map[empty]
+        height_map[empty, 2] = intensity_map[empty]
+        
+        return height_map
+    
+    def transform_3d_box_to_bev(self, dimensions, location, rotation_y):
+        """Transform 3D box to BEV coordinates"""
+        # Extract dimensions
+        h, w, l = dimensions
+        x, y, z = location
+        
+        # Calculate 3D box corners
+        corners_3d = np.array([
+            [l/2, w/2, 0],   # front-right
+            [l/2, -w/2, 0],  # front-left
+            [-l/2, -w/2, 0], # back-left
+            [-l/2, w/2, 0]   # back-right
+        ])
+        
+        # Rotation matrix
+        R = np.array([
+            [np.cos(rotation_y), 0, np.sin(rotation_y)],
+            [0, 1, 0],
+            [-np.sin(rotation_y), 0, np.cos(rotation_y)]
+        ])
+        
+        # Apply rotation and translation
+        corners_3d = np.dot(R, corners_3d.T).T
+        corners_3d[:, 0] += x
+        corners_3d[:, 1] += y
+        corners_3d[:, 2] += z
+        
+        # Transform to BEV image coordinates
+        x_img = (-corners_3d[:, 1] / self.resolution).astype(np.int32)
+        y_img = (-corners_3d[:, 0] / self.resolution).astype(np.int32)
+        
+        # Shift to image coordinates for the specific range
+        x_img -= int(np.floor(self.side_range[0] / self.resolution))
+        y_img += int(np.floor(self.fwd_range[1] / self.resolution))
+        
+        # Center point in BEV
+        center_x = (-y / self.resolution) - int(np.floor(self.side_range[0] / self.resolution))
+        center_y = (-x / self.resolution) + int(np.floor(self.fwd_range[1] / self.resolution))
+        
+        corners_bev = list(zip(x_img, y_img))
+        center_bev = (int(center_x), int(center_y))
+        
+        return corners_bev, center_bev
+    
+    def draw_box_on_bev(self, bev_image, corners_bev, center_bev, obj_type):
+        """Draw bounding box on BEV image"""
+        # Create a copy of the image to draw on
+        bev_with_box = bev_image.copy()
+        
+        # Get color for this object type
+        color = self.color_map.get(obj_type, (255, 255, 255))  # Default: white
+        
+        # Convert corners to numpy array for drawing
+        corners_np = np.array(corners_bev, dtype=np.int32)
+        
+        # Draw filled polygon with transparency
+        overlay = bev_with_box.copy()
+        cv2.fillPoly(overlay, [corners_np], color)
+        
+        # Apply the overlay with transparency
+        alpha = 0.3  # Transparency factor
+        cv2.addWeighted(overlay, alpha, bev_with_box, 1 - alpha, 0, bev_with_box)
+        
+        # Connect corners with lines
+        for i in range(4):
+            cv2.line(bev_with_box, 
+                      corners_bev[i], 
+                      corners_bev[(i+1)%4], 
+                      color, 
+                      2)
+        
+        # Draw center point
+        cv2.circle(bev_with_box, center_bev, 3, color, -1)
+        
+        # Add label
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(bev_with_box, obj_type, 
+                  (center_bev[0], center_bev[1] - 10), 
+                  font, 0.5, color, 2)
+        
+        return bev_with_box
+    
+    def create_yolo_label(self, corners_bev, obj_type, img_shape):
+        """Create YOLO format label based on BEV corners"""
+        # Get image dimensions
+        img_height, img_width = img_shape
+        
+        # Convert corners to numpy array
+        corners = np.array(corners_bev)
+        
+        # Calculate bounding box
+        x_min = np.min(corners[:, 0])
+        y_min = np.min(corners[:, 1])
+        x_max = np.max(corners[:, 0])
+        y_max = np.max(corners[:, 1])
+        
+        # Ensure the box has width and height
+        if x_max <= x_min:
+            x_max = x_min + 1
+        if y_max <= y_min:
+            y_max = y_min + 1
+        
+        # Calculate center and dimensions (YOLO format)
+        x_center = (x_min + x_max) / 2
+        y_center = (y_min + y_max) / 2
+        width = x_max - x_min
+        height = y_max - y_min
+        
+        # Normalize coordinates (YOLO format)
+        x_center_norm = x_center / img_width
+        y_center_norm = y_center / img_height
+        width_norm = width / img_width
+        height_norm = height / img_height
+        
+        # Map class to ID
+        class_id = 0  # Default to Car
+        if obj_type == 'Pedestrian':
+            class_id = 1
+        elif obj_type == 'Cyclist':
+            class_id = 2
+        elif obj_type == 'Truck':
+            class_id = 3
+        
+        # Create YOLO label string
+        yolo_label = f"{class_id} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}"
+        
+        return yolo_label
