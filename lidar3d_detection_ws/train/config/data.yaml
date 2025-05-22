@@ -2,7 +2,8 @@ names:
 - Car
 - Pedestrian
 - Cyclist
+- Bus
 - Truck
-nc: 4
+nc: 5
 train: /lidar3d_detection_ws/train/dataset/train/images
 val: /lidar3d_detection_ws/train/dataset/val/images

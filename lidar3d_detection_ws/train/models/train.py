@@ -204,8 +204,8 @@ def train_on_single_image_from_scratch(bin_file, label_file, config_path, output
         'path': output_dir,
         'train': train_dir,
         'val': val_dir,
-        'nc': 4,  # Number of classes
-        'names': ['Car', 'Pedestrian', 'Cyclist', 'Truck']
+        'nc': 5,  # Updated: 5 classes instead of 6 (removed DontCare)
+        'names': ['Car', 'Pedestrian', 'Cyclist', 'Bus', 'Truck']  # Updated class order without DontCare
     }
     
     # Create a temporary YAML file with dataset configuration
@@ -716,8 +716,8 @@ def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, 
         'path': dataset_dir,
         'train': os.path.join('train', 'images'),
         'val': os.path.join('val', 'images'),
-        'nc': 4,  # Number of classes
-        'names': ['Car', 'Pedestrian', 'Cyclist', 'Truck']
+        'nc': 5,  # Updated: 5 classes instead of 6 (removed DontCare)
+        'names': ['Car', 'Pedestrian', 'Cyclist', 'Bus', 'Truck']  # Updated class order without DontCare
     }
     
     # Create a temporary YAML file with dataset configuration
@@ -1804,8 +1804,8 @@ def train_from_checkpoint(bin_dir, label_dir, config_path, output_dir, checkpoin
         'path': dataset_dir,
         'train': os.path.join('train', 'images'),
         'val': os.path.join('val', 'images'),
-        'nc': 4,  # Number of classes
-        'names': ['Car', 'Pedestrian', 'Cyclist', 'Truck']
+        'nc': 5,  # Updated: 5 classes instead of 6 (removed DontCare)
+        'names': ['Car', 'Pedestrian', 'Cyclist', 'Bus', 'Truck']  # Updated class order without DontCare
     }
     
     # Create a temporary YAML file with dataset configuration
@@ -1837,7 +1837,7 @@ def train_from_checkpoint(bin_dir, label_dir, config_path, output_dir, checkpoin
         'weight_decay': 0.0005,
         'cache': True,
         'data': dataset_yaml,
-        'patience': 50,  # Early stopping patience
+        'patience': 10,  # Early stopping patience
         'save_period': 10  # Save checkpoint every 10 epochs
     }
     

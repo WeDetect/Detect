@@ -27,7 +27,7 @@ from data_processing.preprocessing import load_config, read_bin_file, read_label
 from data_processing.preproccesing_0 import convert_labels_to_yolo_format, PointCloudProcessor
 from data_processing.augmentation import create_range_adapted_bev_image
 
-def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir, conf_threshold=0.25, iou_threshold=0.5, max_samples=10):
+def evaluate_model(model_path, bin_dir, label_dir, config_path, output_dir, conf_threshold=0.25, iou_threshold=0.5, max_samples=100):
     """
     Evaluate a trained YOLO model on BEV images
     
@@ -411,7 +411,7 @@ def main():
                         help='Confidence threshold for detections')
     parser.add_argument('--iou_threshold', type=float, default=0.5, 
                         help='IoU threshold for NMS and TP calculation')
-    parser.add_argument('--max_samples', type=int, default=10, 
+    parser.add_argument('--max_samples', type=int, default=100, 
                         help='Maximum number of samples to evaluate')
     
     args = parser.parse_args()

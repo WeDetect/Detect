@@ -19,6 +19,10 @@ from tf2_ros import TransformException
 from scipy.spatial.transform import Rotation
 import tf2_geometry_msgs
 from cv_bridge import CvBridge
+import sys
+import time
+import numba
+from numba import jit, prange
 
 # Add parent directory to path for imports
 import sys
@@ -26,11 +30,11 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-# הוסף את תיקיית הפרויקט הראשית לנתיב החיפוש
-project_dir = '/lidar3d_detection_ws'  # שנה לנתיב הנכון אם צריך
+
+project_dir = '/lidar3d_detection_ws'  
 sys.path.append(project_dir)
 
-# וודא שנתיב העבודה הנוכחי מוגדר נכון
+
 os.chdir(project_dir)
 
 try:
@@ -49,7 +53,7 @@ class LidarDetectionNode(Node):
         self.declare_parameter('markers_topic', '/detected_objects')
         self.declare_parameter('model_path', '/lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/best.pt')
         self.declare_parameter('config_path', '/lidar3d_detection_ws/train/config/preprocessing_config.yaml')
-        self.declare_parameter('confidence_threshold', 0.5)
+        self.declare_parameter('confidence_threshold', 0.3)
         
         # Point cloud filtering parameters
         self.declare_parameter('x_min', 0.0)
@@ -136,11 +140,142 @@ class LidarDetectionNode(Node):
         
         self.get_logger().info("Lidar detection node initialized")
         
+        # Add a dictionary to store previous marker positions for smoothing
+        self.previous_markers = {}
+        
+        # Smoothing factor (0-1): 0 = use only new position, 1 = use only old position
+        self.smoothing_factor = 0.3
+        
+        # Marker lifetime in seconds
+        self.marker_lifetime = 0.5  # Longer than the typical update rate
+        
+        # Add performance tracking
+        self.processing_times = []
+        self.max_times_to_track = 10
+        
+    # Optimized function for creating BEV image
+    @staticmethod
+    @jit(nopython=True, parallel=True)
+    def _create_bev_image_optimized_numba(
+        x_points, y_points, z_points, intensity,
+        fwd_range, side_range, height_range,
+        resolution, z_resolution,
+        x_max, y_max, z_max
+    ):
+        # Initialize BEV image array
+        bev_image = np.zeros((y_max + 1, x_max + 1, 3), dtype=np.uint8)
+        
+        # Filter points that are within the specified ranges
+        indices = []
+        for i in range(len(x_points)):
+            x = x_points[i]
+            y = y_points[i]
+            z = z_points[i]
+            
+            if (x > fwd_range[0] and x < fwd_range[1] and
+                y > -side_range[1] and y < -side_range[0] and
+                z > height_range[0] and z < height_range[1]):
+                indices.append(i)
+        
+        # Define floor height range
+        floor_min_height = -2.0
+        floor_max_height = 0.3
+        
+        # Calculate which height slices correspond to the floor
+        floor_min_idx = max(0, int((floor_min_height - height_range[0]) / z_resolution))
+        floor_max_idx = min(z_max, int((floor_max_height - height_range[0]) / z_resolution))
+        
+        # Process each filtered point
+        for idx in indices:
+            x = x_points[idx]
+            y = y_points[idx]
+            z = z_points[idx]
+            intens = intensity[idx]
+            
+            # Convert coordinates to pixel positions
+            x_img = int(-y / resolution)
+            y_img = int(-x / resolution)
+            
+            # Shift coordinates to image space
+            x_img -= int(side_range[0] / resolution)
+            y_img += int(fwd_range[1] / resolution)
+            
+            # Check if the point is within image bounds
+            if (0 <= x_img < x_max + 1 and 0 <= y_img < y_max + 1):
+                # Calculate height slice
+                z_idx = int((z - height_range[0]) / z_resolution)
+                if 0 <= z_idx < z_max:
+                    # Skip floor points - they will remain black (0,0,0)
+                    if z_idx >= floor_min_idx and z_idx <= floor_max_idx:
+                        continue
+                    
+                    # Create a color gradient from blue (lower) to red (higher)
+                    b = max(0, 255 - (z_idx * 255 // z_max))
+                    r = min(255, z_idx * 255 // z_max)
+                    g = min(100, z_idx * 100 // z_max)
+                    
+                    # Set the color in the image
+                    bev_image[y_img, x_img, 0] = r
+                    bev_image[y_img, x_img, 1] = g
+                    bev_image[y_img, x_img, 2] = b
+                else:
+                    # Use intensity for points outside height range
+                    intensity_val = min(255, max(0, int(intens)))
+                    bev_image[y_img, x_img, 0] = intensity_val
+                    bev_image[y_img, x_img, 1] = intensity_val
+                    bev_image[y_img, x_img, 2] = intensity_val
+        
+        return bev_image
+    
+    def create_bev_image_fast(self, points):
+        """
+        Create a bird's eye view image from point cloud data - optimized version
+        """
+        start_time = time.time()
+        
+        # Extract point coordinates
+        x_points = points[:, 0]
+        y_points = points[:, 1]
+        z_points = points[:, 2]
+        intensity = points[:, 3]
+        
+        # Get parameters from processor
+        fwd_range = np.array(self.processor.fwd_range)
+        side_range = np.array(self.processor.side_range)
+        height_range = np.array(self.processor.height_range)
+        resolution = self.processor.resolution
+        z_resolution = self.processor.z_resolution
+        x_max = self.processor.x_max
+        y_max = self.processor.y_max
+        z_max = self.processor.z_max
+        
+        # Call the numba-optimized function
+        bev_image = self._create_bev_image_optimized_numba(
+            x_points, y_points, z_points, intensity,
+            fwd_range, side_range, height_range,
+            resolution, z_resolution,
+            x_max, y_max, z_max
+        )
+        
+        end_time = time.time()
+        processing_time = end_time - start_time
+        
+        # Track processing time
+        self.processing_times.append(processing_time)
+        if len(self.processing_times) > self.max_times_to_track:
+            self.processing_times.pop(0)
+        
+        avg_time = sum(self.processing_times) / len(self.processing_times)
+        self.get_logger().info(f"BEV image creation time: {processing_time:.4f}s, Avg: {avg_time:.4f}s")
+        
+        return bev_image
+        
     def pointcloud_callback(self, msg):
         try:
+            callback_start = time.time()
             self.get_logger().info(f"Received point cloud with frame_id: {msg.header.frame_id}")
             
-            # Convert ROS2 PointCloud2 to numpy array
+            # Convert ROS2 PointCloud2 to numpy array - optimize this part
             points_list = []
             for point in pc2.read_points(msg, field_names=("x", "y", "z", "intensity"), skip_nans=True):
                 points_list.append([point[0], point[1], point[2], point[3]])
@@ -149,11 +284,12 @@ class LidarDetectionNode(Node):
                 self.get_logger().warn("Empty point cloud received")
                 return
                 
-            points = np.array(points_list)
+            points = np.array(points_list, dtype=np.float32)
             
             # Transform points from innoviz frame to world frame using TF - FASTER VERSION
             if msg.header.frame_id != 'world':
                 try:
+                    transform_start = time.time()
                     self.get_logger().info(f"Transforming points from {msg.header.frame_id} to world frame")
                     
                     # Get the transform from TF
@@ -182,19 +318,15 @@ class LidarDetectionNode(Node):
                     # Combine back with intensity
                     points = np.hstack((points_transformed, points_intensity))
                     
-                    self.get_logger().info(f"Transformed {len(points)} points to world frame")
+                    transform_end = time.time()
+                    self.get_logger().info(f"Transformed {len(points)} points to world frame in {transform_end - transform_start:.4f}s")
                     
                 except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
                     self.get_logger().error(f"TF Error: {e}")
                     return
             
-            # Log point stats before filtering
-            self.get_logger().info(f"Original points: {points.shape[0]}")
-            self.get_logger().info(f"X range: {np.min(points[:,0]):.2f} to {np.max(points[:,0]):.2f}")
-            self.get_logger().info(f"Y range: {np.min(points[:,1]):.2f} to {np.max(points[:,1]):.2f}")
-            self.get_logger().info(f"Z range: {np.min(points[:,2]):.2f} to {np.max(points[:,2]):.2f}")
-            
-            # Filter points based on spatial range
+            # Filter points based on spatial range - vectorized operation
+            filter_start = time.time()
             mask = (
                 (points[:, 0] >= self.x_min) & (points[:, 0] <= self.x_max) &
                 (points[:, 1] >= self.y_min) & (points[:, 1] <= self.y_max) &
@@ -206,16 +338,16 @@ class LidarDetectionNode(Node):
                 self.get_logger().warn("No points left after filtering - using original points")
                 filtered_points = points  # Fall back to unfiltered points for debugging
             
-            # Log point stats after filtering
-            self.get_logger().info(f"Filtered points: {filtered_points.shape[0]}")
-            self.get_logger().info(f"X range: {np.min(filtered_points[:,0]):.2f} to {np.max(filtered_points[:,0]):.2f}")
-            self.get_logger().info(f"Y range: {np.min(filtered_points[:,1]):.2f} to {np.max(filtered_points[:,1]):.2f}")
-            self.get_logger().info(f"Z range: {np.min(filtered_points[:,2]):.2f} to {np.max(filtered_points[:,2]):.2f}")
+            filter_end = time.time()
+            self.get_logger().info(f"Filtered points in {filter_end - filter_start:.4f}s, remaining: {filtered_points.shape[0]}")
             
-            # השתמש באובייקט הprocessor עם הקונפיג מהקובץ
-            bev_img = self.processor.create_bev_image(filtered_points)
+            # Use our optimized BEV image creation function
+            bev_start = time.time()
+            bev_img = self.create_bev_image_fast(filtered_points)
+            bev_end = time.time()
+            self.get_logger().info(f"Created BEV image in {bev_end - bev_start:.4f}s")
             
-            # Publish BEV image instead of saving to disk
+            # Publish BEV image
             try:
                 img_msg = self.bridge.cv2_to_imgmsg(bev_img, encoding="bgr8")
                 img_msg.header = msg.header
@@ -223,14 +355,19 @@ class LidarDetectionNode(Node):
             except Exception as e:
                 self.get_logger().error(f"Failed to publish BEV image: {str(e)}")
             
-            # כעת, בצע את הפרדיקציה על התמונה המעובדת
+            # Run inference with the model
+            inference_start = time.time()
             results = self.model.predict(
                 source=bev_img,
                 conf=self.confidence_threshold,
                 iou=0.5,
                 verbose=False
             )
+            inference_end = time.time()
+            self.get_logger().info(f"Model inference took {inference_end - inference_start:.4f}s")
             
+            # Process results and create markers
+            markers_start = time.time()
             # Check if we have any detections
             if not results or len(results) == 0 or not hasattr(results[0], 'boxes') or len(results[0].boxes) == 0:
                 self.get_logger().info("No detections found")
@@ -281,6 +418,13 @@ class LidarDetectionNode(Node):
                 
                 # Publish markers
                 self.marker_pub.publish(markers)
+            
+            markers_end = time.time()
+            self.get_logger().info(f"Created and published markers in {markers_end - markers_start:.4f}s")
+            
+            callback_end = time.time()
+            total_time = callback_end - callback_start
+            self.get_logger().info(f"Total processing time: {total_time:.4f}s")
             
         except Exception as e:
             self.get_logger().error(f"Error processing point cloud: {str(e)}")

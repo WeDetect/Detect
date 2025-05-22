@@ -29,10 +29,11 @@ class PointCloudProcessor:
         
         # Default colors for classes (BGR format)
         self.colors = {
-            'Car': (0, 0, 255),      # Red
-            'Pedestrian': (0, 255, 0),  # Green
-            'Cyclist': (255, 0, 0),   # Blue
-            'Truck': (255, 255, 0)    # Cyan
+            'Car': (0, 0, 255),           # Red
+            'Pedestrian': (0, 255, 0),    # Green
+            'Cyclist': (255, 0, 0),       # Blue
+            'Bus': (255, 0, 255),         # Magenta
+            'Truck': (255, 255, 0)        # Cyan
         }
         
         # Load configs if provided
@@ -75,7 +76,7 @@ class PointCloudProcessor:
             print("=====================================\n")
                 
         # Load class names from data config
-        self.class_names = ['Car', 'Pedestrian', 'Cyclist', 'Truck']
+        self.class_names = ['Car', 'Pedestrian', 'Cyclist', 'Bus', 'Truck']
         if data_config_path and os.path.exists(data_config_path):
             with open(data_config_path, 'r') as f:
                 data_config = yaml.safe_load(f)
@@ -92,6 +93,7 @@ class PointCloudProcessor:
         self.class_map = {}
         for i, name in enumerate(self.class_names):
             self.class_map[name] = i
+        print("Class mapping:", self.class_map)
         
     def load_point_cloud(self, file_path):
         """
@@ -384,6 +386,10 @@ class PointCloudProcessor:
         # Get image dimensions
         img_height, img_width = img_shape
         
+        # Skip DontCare objects
+        if obj_type == 'DontCare':
+            return None
+        
         # Extract x and y coordinates
         x_coords = [x for x, y in corners_bev]
         y_coords = [y for x, y in corners_bev]
@@ -408,8 +414,8 @@ class PointCloudProcessor:
         bbox_width /= img_width
         bbox_height /= img_height
         
-        # Get class ID
-        class_id = self.class_map.get(obj_type, 0)
+        # Get class ID - use the class_map or default to 0 (Car) if not found
+        class_id = self.class_map.get(obj_type, 0)  # Default to Car (0) if not found
         
         # Create YOLO format label
         return f"{class_id} {center_x:.6f} {center_y:.6f} {bbox_width:.6f} {bbox_height:.6f}"
@@ -508,6 +514,10 @@ class PointCloudProcessor:
         yolo_labels = []
         
         for obj in objects:
+            # Skip DontCare objects
+            if obj['type'] == 'DontCare':
+                continue
+            
             # Transform 3D box to BEV
             corners_bev, center_bev = self.transform_3d_box_to_bev(
                 obj['dimensions'], obj['location'], obj['rotation_y']
