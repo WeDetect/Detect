@@ -426,7 +426,7 @@ def _run_inference_and_verify(model, val_data, verification_dir, processor):
     print(f"Comparison image saved to: {comparison_path}")
 
 
-def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, epochs=100, img_size=640, batch_size=16, device='cpu', augmentations=False, augmentation_factor=3):
+def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, epochs=100, img_size=640, batch_size=16, device='cpu', augmentations=False):
     """
     Train a model from scratch on all data
 
@@ -440,7 +440,6 @@ def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, 
         batch_size: Batch size
         device: Device to use (cuda:0 or cpu)
         augmentations: Whether to use augmentations
-        augmentation_factor: Number of augmented samples per original
 
     Returns:
         Path to best weights
