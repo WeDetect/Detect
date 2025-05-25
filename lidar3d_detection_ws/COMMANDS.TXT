@@ -13,4 +13,14 @@ python3 train/models/train.py --continue_training --checkpoint_path /lidar3d_det
 python3 train/models/train.py --continue_training --checkpoint_path /lidar3d_detection_ws/train/output/best.pt --epochs 50 --batch 8 --device cpu
 
 #Evaluate the model
-python3 train/models/evaluate.py --model_path /lidar3d_detection_ws/train/epoch30.pt --max_samples 1000 --conf_threshold 0.2
+python3 train/models/evaluate.py --model_path /lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/best.pt --max_samples 1000 --conf_threshold 0.2
+
+
+python3 train/models/evaluate.py \
+  --model_path /lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/best.pt \
+  --bin_dir /lidar3d_detection_ws/data/augmented \
+  --label_dir /lidar3d_detection_ws/data/augmented_labels \
+  --config_path /lidar3d_detection_ws/train/config/preprocessing_config.yaml \
+  --conf_threshold 0.25 \
+  --iou_threshold 0.5 \
+  --max_samples 10

@@ -1757,7 +1757,7 @@ def train_from_checkpoint(bin_dir, label_dir, config_path, output_dir, checkpoin
         except Exception as e:
             print(f"Error processing {bin_file}: {e}")
             continue
-    
+    load_config
     print(f"Successfully processed {len(all_data)} samples (original + augmented)")
     
     # Split into train/val sets
