@@ -1,15 +1,11 @@
 import os
 import sys
 import numpy as np
-from pathlib import Path
-import math
 import cv2
 
 # הוסף את התיקייה הנוכחית לנתיב החיפוש
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
-
-from preprocessing import read_bin_file, read_label_file, create_bev_image, load_config
 
 def rotate_points_and_labels(points, labels, angle_degrees):
     """

@@ -19,7 +19,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 # Import from our other modules
-from data_processing.preprocessing import load_config, read_bin_file, read_label_file, create_bev_image
+from data_processing.preprocessing import load_config, read_bin_file, read_label_file
 from data_processing.preproccesing_0 import convert_labels_to_yolo_format
 from data_processing.augmentation import (rotate_points_and_labels, 
                                          shift_lateral_points_and_labels,
@@ -31,10 +31,10 @@ from data_processing.preproccesing_0 import PointCloudProcessor
 
 # Global configuration
 DEFAULT_CONFIG = {
-    'bin_dir': '/lidar3d_detection_ws/data/innoviz',
-    'label_dir': '/lidar3d_detection_ws/data/labels',
-    'config_path': '/lidar3d_detection_ws/train/config/preprocessing_config.yaml',
-    'output_base': '/lidar3d_detection_ws/train',
+    'bin_dir': os.getcwd() + '/data/innoviz',
+    'label_dir': os.getcwd() + '/data/labels',
+    'config_path': os.getcwd() + '/train/config/preprocessing_config.yaml',
+    'output_base': os.getcwd() + '/train',
     'train_val_split': 0.8,  # 80% training, 20% validation
     'epochs': 70,
     'batch_size': 8,
@@ -1368,7 +1368,7 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
     
     return bev_image, yolo_labels
 
-def train_from_checkpoint(bin_dir, label_dir, config_path, output_dir, checkpoint_path='/lidar3d_detection_ws/train/output/best.pt', epochs=100, img_size=640, batch_size=16, device='cpu', augmentations=False, augmentation_factor=3):
+def train_from_checkpoint(bin_dir, label_dir, config_path, output_dir, checkpoint_path='train/output/best.pt', epochs=100, img_size=640, batch_size=16, device='cpu', augmentations=False, augmentation_factor=3):
     """
     Continue training a YOLO model from a checkpoint
     
@@ -1863,13 +1863,13 @@ def main():
     parser = argparse.ArgumentParser(description='Train YOLO model on BEV images')
     
     # Dataset generation options
-    parser.add_argument('--bin_dir', type=str, default='/lidar3d_detection_ws/data/innoviz/', 
+    parser.add_argument('--bin_dir', type=str, default='data/innoviz/', 
                         help='Directory containing bin files')
-    parser.add_argument('--label_dir', type=str, default='/lidar3d_detection_ws/data/labels/', 
+    parser.add_argument('--label_dir', type=str, default='data/labels/', 
                         help='Directory containing label files')
-    parser.add_argument('--config_path', type=str, default='/lidar3d_detection_ws/train/config/preprocessing_config.yaml', 
+    parser.add_argument('--config_path', type=str, default='train/config/preprocessing_config.yaml', 
                         help='Path to preprocessing config file')
-    parser.add_argument('--output_base', type=str, default='/lidar3d_detection_ws/train', 
+    parser.add_argument('--output_base', type=str, default='train', 
                         help='Base directory for output')
     
     # Training options
@@ -2036,14 +2036,6 @@ def main():
                 img_size=args.img_size,
                 device=args.device
             )
-        else:
-            print("Testing on a single image...")
-            best_weights = test_single_image(
-                bin_file=args.bin_file,
-                label_file=args.label_file,
-                config_path=args.config_path,
-                output_dir=output_dir
-            )
     
     # אם נבחרה האופציה לאימון על כל הנתונים מאפס
     elif args.all_data_from_scratch:
@@ -2079,7 +2071,6 @@ def main():
         )
     
 
-    
     print(f"Training complete. Best weights saved to: {best_weights}")
 
 if __name__ == "__main__":

@@ -1,4 +1,3 @@
-import torch
 from ultralytics import YOLO
 import numpy as np
 

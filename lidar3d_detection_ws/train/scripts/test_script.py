@@ -2,9 +2,6 @@ import os
 import sys
 import numpy as np
 import cv2
-from pathlib import Path
-import time
-import glob
 import yaml
 
 # Add parent directory to path for importing modules
@@ -30,12 +27,8 @@ def create_processor():
     processor = PointCloudProcessor(config_path, data_config_path)
     return processor
 
-def visualize_dataset():
+def visualize_dataset(data_dir, labels_dir):
     """Visualize all bin files in the dataset with their corresponding labels"""
-    # Define paths to data directories
-    data_dir = '/lidar3d_detection_ws/data/innoviz/'
-    labels_dir = '/lidar3d_detection_ws/data/labels/'
-    
     # Create a processor instance
     processor = create_processor()
     
@@ -86,12 +79,8 @@ def visualize_dataset():
     
     cv2.destroyAllWindows()
 
-def visualize_specific_file():
+def visualize_specific_file(bin_file, label_file):
     """Visualize a specific bin file with its labels"""
-    # Define the paths to the bin and label files
-    bin_file = '/lidar3d_detection_ws/data/innoviz/innoviz_00010.bin'
-    label_file = '/lidar3d_detection_ws/data/labels/innoviz_00010.txt'
-    
     # Check if the bin file exists
     if not os.path.exists(bin_file):
         print(f"Error: File not found: {bin_file}")
@@ -132,14 +121,13 @@ def visualize_specific_file():
     cv2.waitKey(0)  # Wait until a key is pressed
     cv2.destroyAllWindows()
 
-def visualize_with_controls():
+def visualize_with_controls(
+        bin_file, 
+        label_file, 
+        config_path="train/config/preprocessing_config.yaml", 
+        data_config_path="train/config/data.yaml"
+    ):
     """Visualize a specific file with interactive controls for adjusting visualization params"""
-    # Define the paths to the bin and label files
-    bin_file = '/lidar3d_detection_ws/data/innoviz/innoviz_00010.bin'
-    label_file = '/lidar3d_detection_ws/data/labels/innoviz_00010.txt'
-    config_path = "/lidar3d_detection_ws/train/config/preprocessing_config.yaml"
-    data_config_path = "/lidar3d_detection_ws/train/config/data.yaml"
-    
     # Check if files exist
     if not os.path.exists(bin_file) or not os.path.exists(label_file):
         print(f"Error: Files not found")
@@ -273,14 +261,9 @@ def visualize_with_controls():
     
     cv2.destroyAllWindows()
 
-def visualize_augmentations():
+def visualize_augmentations(data_dir, labels_dir, config_path="train/config/preprocessing_config.yaml"):
     """Visualize various augmentations on the first point cloud file in the dataset"""
     print("Visualizing different augmentations on the first bin file")
-    
-    # Define the paths to the bin and label files (first file in dataset)
-    data_dir = '/lidar3d_detection_ws/data/innoviz/'
-    labels_dir = '/lidar3d_detection_ws/data/labels/'
-    
     # Get the first bin file
     bin_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.bin')])
     if not bin_files:
@@ -305,7 +288,6 @@ def visualize_augmentations():
     processor = create_processor()
     
     # Get config
-    config_path = "/lidar3d_detection_ws/train/config/preprocessing_config.yaml"
     config = load_config(config_path)
     
     # Load point cloud and labels
@@ -719,13 +701,9 @@ def demonstrate_range_filtering(points, labels, processor, original_bev, config,
     # Close window after all filters
     cv2.destroyWindow(window_name)
 
-def visualize_without_bounding_boxes():
+def visualize_without_bounding_boxes(data_dir):
     """Visualize BEV images of point clouds without bounding boxes"""
     print("Visualizing dataset without bounding boxes...")
-    
-    # Define the path to the bin files
-    data_dir = '/lidar3d_detection_ws/data/innoviz/'
-    
     # Get the bin files
     bin_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.bin')])
     
@@ -772,12 +750,8 @@ def visualize_without_bounding_boxes():
     
     cv2.destroyAllWindows()
 
-def visualize_with_filled_boxes():
+def visualize_with_filled_boxes(data_dir, labels_dir):
     """Visualize all bin files in the dataset with filled bounding boxes"""
-    # Define paths to data directories
-    data_dir = '/lidar3d_detection_ws/data/innoviz/'
-    labels_dir = '/lidar3d_detection_ws/data/labels/'
-    
     # Create a processor instance
     processor = create_processor()
     
@@ -830,15 +804,9 @@ def visualize_with_filled_boxes():
     
     cv2.destroyAllWindows()
 
-def visualize_zoomed_regions():
+def visualize_zoomed_regions(bin_file, label_file, config_path="train/config/preprocessing_config.yaml"):
     """Visualize zoomed-in regions of a point cloud with and without bounding boxes"""
     print("Visualizing zoomed-in regions of point cloud...")
-    
-    # Define the paths to the bin and label files
-    bin_file = '/lidar3d_detection_ws/data/innoviz/00010.bin'
-    label_file = '/lidar3d_detection_ws/data/labels/00010.txt'
-    config_path = "/lidar3d_detection_ws/train/config/preprocessing_config.yaml"
-    
     # Check if files exist
     if not os.path.exists(bin_file):
         print(f"Error: Bin file not found: {bin_file}")
@@ -982,6 +950,9 @@ def visualize_zoomed_regions():
     cv2.destroyAllWindows()
 
 def main():
+    point_cloud_dir = '/home/user/deep_learning/Detect/lidar3d_detection_ws/data/innoviz'
+    label_dir = '/home/user/deep_learning/Detect/lidar3d_detection_ws/data/labels'
+    
     print("Point Cloud BEV Visualization")
     print("Choose an option:")
     print("1: Visualize specific file (innoviz_00010.bin)")
@@ -995,19 +966,19 @@ def main():
     choice = input("Enter your choice (1-7): ")
     
     if choice == '1':
-        visualize_specific_file()
+        visualize_specific_file(point_cloud_dir, label_dir)
     elif choice == '2':
-        visualize_dataset()
+        visualize_dataset(point_cloud_dir, label_dir)
     elif choice == '3':
-        visualize_with_controls()
+        visualize_with_controls(point_cloud_dir, label_dir)
     elif choice == '4':
-        visualize_augmentations()
+        visualize_augmentations(point_cloud_dir, label_dir)
     elif choice == '5':
-        visualize_without_bounding_boxes()
+        visualize_without_bounding_boxes(point_cloud_dir)
     elif choice == '6':
-        visualize_with_filled_boxes()
+        visualize_with_filled_boxes(point_cloud_dir, label_dir)
     elif choice == '7':
-        visualize_zoomed_regions()
+        visualize_zoomed_regions(point_cloud_dir, label_dir)
     else:
         print("Invalid choice!")
 

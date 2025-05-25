@@ -1,0 +1,10 @@
+names:
+- Car
+- Pedestrian
+- Cyclist
+- Bus
+- Truck
+nc: 5
+path: train/output/dataset
+train: train/images
+val: val/images
