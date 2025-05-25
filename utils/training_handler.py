@@ -1,4 +1,5 @@
-from lidar3d_detection_ws.train.models.train import train_from_checkpoint, train_on_all_data_from_scratch, train_on_single_image_from_scratch
+from lidar3d_detection_ws.train.models.train import train_from_checkpoint, train_on_single_image_from_scratch
+from lidar3d_detection_ws.train.train_on_all_from_scratch import train_on_all_data_from_scratch
 
 
 def handle_single_image_training(args, output_dir):

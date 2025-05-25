@@ -282,560 +282,560 @@ def train_on_single_image_from_scratch(bin_file, label_file, config_path, output
     
     return best_weights
 
-def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, epochs=100, img_size=640, batch_size=16, device='cpu', augmentations=False, augmentation_factor=3):
-    """
-    Train a model from scratch on all data
+# def train_on_all_data_from_scratch(bin_dir, label_dir, config_path, output_dir, epochs=100, img_size=640, batch_size=16, device='cpu', augmentations=False, augmentation_factor=3):
+#     """
+#     Train a model from scratch on all data
     
-    Args:
-        bin_dir: Directory containing bin files
-        label_dir: Directory containing label files
-        config_path: Path to config file
-        output_dir: Output directory
-        epochs: Number of training epochs
-        img_size: Image size
-        batch_size: Batch size
-        device: Device to use (cuda:0 or cpu)
-        augmentations: Whether to use augmentations
-        augmentation_factor: Number of augmented samples per original
+#     Args:
+#         bin_dir: Directory containing bin files
+#         label_dir: Directory containing label files
+#         config_path: Path to config file
+#         output_dir: Output directory
+#         epochs: Number of training epochs
+#         img_size: Image size
+#         batch_size: Batch size
+#         device: Device to use (cuda:0 or cpu)
+#         augmentations: Whether to use augmentations
+#         augmentation_factor: Number of augmented samples per original
         
-    Returns:
-        Path to best weights
-    """
-    print("\n===== TRAINING FROM SCRATCH ON ALL DATA =====")
-    print(f"Using bin directory: {bin_dir}")
-    print(f"Using label directory: {label_dir}")
-    print(f"Using augmentations: {augmentations}")
+#     Returns:
+#         Path to best weights
+#     """
+#     print("\n===== TRAINING FROM SCRATCH ON ALL DATA =====")
+#     print(f"Using bin directory: {bin_dir}")
+#     print(f"Using label directory: {label_dir}")
+#     print(f"Using augmentations: {augmentations}")
     
-    # Create output directories with proper permissions
-    os.makedirs(output_dir, exist_ok=True)
+#     # Create output directories with proper permissions
+#     os.makedirs(output_dir, exist_ok=True)
     
-    # Create dataset directory
-    dataset_dir = os.path.join(output_dir, 'dataset')
-    os.makedirs(dataset_dir, exist_ok=True)
+#     # Create dataset directory
+#     dataset_dir = os.path.join(output_dir, 'dataset')
+#     os.makedirs(dataset_dir, exist_ok=True)
     
-    # Create train and val directories
-    train_dir = os.path.join(dataset_dir, 'train')
-    val_dir = os.path.join(dataset_dir, 'val')
-    os.makedirs(train_dir, exist_ok=True)
-    os.makedirs(val_dir, exist_ok=True)
+#     # Create train and val directories
+#     train_dir = os.path.join(dataset_dir, 'train')
+#     val_dir = os.path.join(dataset_dir, 'val')
+#     os.makedirs(train_dir, exist_ok=True)
+#     os.makedirs(val_dir, exist_ok=True)
     
-    # Create images and labels directories
-    train_img_dir = os.path.join(train_dir, 'images')
-    train_label_dir = os.path.join(train_dir, 'labels')
-    val_img_dir = os.path.join(val_dir, 'images')
-    val_label_dir = os.path.join(val_dir, 'labels')
-    os.makedirs(train_img_dir, exist_ok=True)
-    os.makedirs(train_label_dir, exist_ok=True)
-    os.makedirs(val_img_dir, exist_ok=True)
-    os.makedirs(val_label_dir, exist_ok=True)
+#     # Create images and labels directories
+#     train_img_dir = os.path.join(train_dir, 'images')
+#     train_label_dir = os.path.join(train_dir, 'labels')
+#     val_img_dir = os.path.join(val_dir, 'images')
+#     val_label_dir = os.path.join(val_dir, 'labels')
+#     os.makedirs(train_img_dir, exist_ok=True)
+#     os.makedirs(train_label_dir, exist_ok=True)
+#     os.makedirs(val_img_dir, exist_ok=True)
+#     os.makedirs(val_label_dir, exist_ok=True)
     
-    # Create verification directory
-    verification_dir = os.path.join(output_dir, 'verification')
-    os.makedirs(verification_dir, exist_ok=True)
+#     # Create verification directory
+#     verification_dir = os.path.join(output_dir, 'verification')
+#     os.makedirs(verification_dir, exist_ok=True)
     
-    # Create model output directory with explicit permissions
-    model_output_dir = os.path.join(output_dir, 'bev-from-scratch')
-    os.makedirs(model_output_dir, exist_ok=True)
-    os.makedirs(os.path.join(model_output_dir, 'train'), exist_ok=True)
+#     # Create model output directory with explicit permissions
+#     model_output_dir = os.path.join(output_dir, 'bev-from-scratch')
+#     os.makedirs(model_output_dir, exist_ok=True)
+#     os.makedirs(os.path.join(model_output_dir, 'train'), exist_ok=True)
     
-    # Get list of bin files
-    bin_files = sorted(glob.glob(os.path.join(bin_dir, '*.bin')))
-    print(f"Found {len(bin_files)} bin files")
+#     # Get list of bin files
+#     bin_files = sorted(glob.glob(os.path.join(bin_dir, '*.bin')))
+#     print(f"Found {len(bin_files)} bin files")
     
-    # Create processor
-    processor = PointCloudProcessor(config_path=config_path)
+#     # Create processor
+#     processor = PointCloudProcessor(config_path=config_path)
     
-    # Process each bin file
-    all_data = []
+#     # Process each bin file
+#     all_data = []
     
-    for bin_idx, bin_file in enumerate(tqdm(bin_files, desc="Processing bin files")):
-        try:
-            # Get label file path
-            label_file = os.path.join(label_dir, os.path.splitext(os.path.basename(bin_file))[0] + '.txt')
+#     for bin_idx, bin_file in enumerate(tqdm(bin_files, desc="Processing bin files")):
+#         try:
+#             # Get label file path
+#             label_file = os.path.join(label_dir, os.path.splitext(os.path.basename(bin_file))[0] + '.txt')
             
-            # Process point cloud to get original BEV image (without boxes)
-            points = processor.load_point_cloud(bin_file)
-            labels = processor.load_labels(label_file)
+#             # Process point cloud to get original BEV image (without boxes)
+#             points = processor.load_point_cloud(bin_file)
+#             labels = processor.load_labels(label_file)
             
-            # Create clean BEV image for training
-            bev_image = processor.create_bev_image(points)
+#             # Create clean BEV image for training
+#             bev_image = processor.create_bev_image(points)
             
-            # Create YOLO labels
-            yolo_labels = []
+#             # Create YOLO labels
+#             yolo_labels = []
             
-            for obj in labels:
-                if obj['type'] == 'DontCare':
-                    continue
+#             for obj in labels:
+#                 if obj['type'] == 'DontCare':
+#                     continue
                 
-                # Transform 3D box to BEV
-                corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                    obj['dimensions'], obj['location'], obj['rotation_y']
-                )
+#                 # Transform 3D box to BEV
+#                 corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                     obj['dimensions'], obj['location'], obj['rotation_y']
+#                 )
                 
-                # Create YOLO label
-                yolo_label = processor.create_yolo_label(
-                    corners_bev, obj['type'], bev_image.shape[:2]
-                )
-                yolo_labels.append(yolo_label)
+#                 # Create YOLO label
+#                 yolo_label = processor.create_yolo_label(
+#                     corners_bev, obj['type'], bev_image.shape[:2]
+#                 )
+#                 yolo_labels.append(yolo_label)
             
-            # Create a visualization image with boxes (only for verification)
-            bev_with_boxes = bev_image.copy()
-            for obj in labels:
-                if obj['type'] == 'DontCare':
-                    continue
+#             # Create a visualization image with boxes (only for verification)
+#             bev_with_boxes = bev_image.copy()
+#             for obj in labels:
+#                 if obj['type'] == 'DontCare':
+#                     continue
                 
-                corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                    obj['dimensions'], obj['location'], obj['rotation_y']
-                )
-                bev_with_boxes = processor.draw_box_on_bev(
-                    bev_with_boxes, corners_bev, center_bev, obj['type']
-                )
+#                 corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                     obj['dimensions'], obj['location'], obj['rotation_y']
+#                 )
+#                 bev_with_boxes = processor.draw_box_on_bev(
+#                     bev_with_boxes, corners_bev, center_bev, obj['type']
+#                 )
             
-            # Save verification image
-            if bin_idx < 20:  # Save the first 20 images for verification
-                verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_original.png")
-                cv2.imwrite(verify_path, bev_with_boxes)
+#             # Save verification image
+#             if bin_idx < 20:  # Save the first 20 images for verification
+#                 verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_original.png")
+#                 cv2.imwrite(verify_path, bev_with_boxes)
             
-            # Add clean image to dataset
-            all_data.append({
-                'bin_file': bin_file,
-                'bev_image': bev_image,  # Clean image without boxes
-                'yolo_labels': yolo_labels
-            })
+#             # Add clean image to dataset
+#             all_data.append({
+#                 'bin_file': bin_file,
+#                 'bev_image': bev_image,  # Clean image without boxes
+#                 'yolo_labels': yolo_labels
+#             })
             
-            # Create augmentations if enabled
-            if augmentations:
-                # Import augmentation functions
-                sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                from data_processing.augmentation import (
-                    rotate_points_and_labels,
-                    scale_distance_points_and_labels,
-                    shift_lateral_points_and_labels,
-                    create_range_adapted_bev_image
-                )
+#             # Create augmentations if enabled
+#             if augmentations:
+#                 # Import augmentation functions
+#                 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+#                 from data_processing.augmentation import (
+#                     rotate_points_and_labels,
+#                     scale_distance_points_and_labels,
+#                     shift_lateral_points_and_labels,
+#                     create_range_adapted_bev_image
+#                 )
                 
-                # Augmentation 1: Rotate point cloud by different angles
-                for angle in [-15, 15]:
-                    # Rotate points and labels
-                    rotated_points, rotated_labels = rotate_points_and_labels(points, labels, angle)
+#                 # Augmentation 1: Rotate point cloud by different angles
+#                 for angle in [-15, 15]:
+#                     # Rotate points and labels
+#                     rotated_points, rotated_labels = rotate_points_and_labels(points, labels, angle)
                     
-                    # Create clean BEV image for training
-                    rotated_bev_image = processor.create_bev_image(rotated_points)
+#                     # Create clean BEV image for training
+#                     rotated_bev_image = processor.create_bev_image(rotated_points)
                     
-                    # Process rotated objects and create YOLO labels
-                    rotated_yolo_labels = []
+#                     # Process rotated objects and create YOLO labels
+#                     rotated_yolo_labels = []
                     
-                    for obj in rotated_labels:
-                        if obj['type'] == 'DontCare':
-                            continue
+#                     for obj in rotated_labels:
+#                         if obj['type'] == 'DontCare':
+#                             continue
                             
-                        # Transform 3D box to BEV
-                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                            obj['dimensions'], obj['location'], obj['rotation_y']
-                        )
+#                         # Transform 3D box to BEV
+#                         corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                             obj['dimensions'], obj['location'], obj['rotation_y']
+#                         )
                         
-                        # Create YOLO label
-                        yolo_label = processor.create_yolo_label(
-                            corners_bev, obj['type'], rotated_bev_image.shape[:2]
-                        )
-                        rotated_yolo_labels.append(yolo_label)
+#                         # Create YOLO label
+#                         yolo_label = processor.create_yolo_label(
+#                             corners_bev, obj['type'], rotated_bev_image.shape[:2]
+#                         )
+#                         rotated_yolo_labels.append(yolo_label)
                     
-                    # Create verification image with boxes
-                    rotated_bev_with_boxes = rotated_bev_image.copy()
-                    for obj in rotated_labels:
-                        if obj['type'] == 'DontCare':
-                            continue
+#                     # Create verification image with boxes
+#                     rotated_bev_with_boxes = rotated_bev_image.copy()
+#                     for obj in rotated_labels:
+#                         if obj['type'] == 'DontCare':
+#                             continue
                             
-                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                            obj['dimensions'], obj['location'], obj['rotation_y']
-                        )
-                        rotated_bev_with_boxes = processor.draw_box_on_bev(
-                            rotated_bev_with_boxes, corners_bev, center_bev, obj['type']
-                        )
+#                         corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                             obj['dimensions'], obj['location'], obj['rotation_y']
+#                         )
+#                         rotated_bev_with_boxes = processor.draw_box_on_bev(
+#                             rotated_bev_with_boxes, corners_bev, center_bev, obj['type']
+#                         )
                     
-                    # Only add if we have valid labels
-                    if rotated_yolo_labels:
-                        all_data.append({
-                            'bin_file': bin_file,
-                            'bev_image': rotated_bev_image,  # Clean image without boxes
-                            'yolo_labels': rotated_yolo_labels,
-                            'augmentation': f'rotation_{angle}'
-                        })
+#                     # Only add if we have valid labels
+#                     if rotated_yolo_labels:
+#                         all_data.append({
+#                             'bin_file': bin_file,
+#                             'bev_image': rotated_bev_image,  # Clean image without boxes
+#                             'yolo_labels': rotated_yolo_labels,
+#                             'augmentation': f'rotation_{angle}'
+#                         })
                     
-                    # Save verification image if needed
-                    if bin_idx < 5:
-                        verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_rotation_{angle}.png")
-                        cv2.imwrite(verify_path, rotated_bev_with_boxes)
+#                     # Save verification image if needed
+#                     if bin_idx < 5:
+#                         verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_rotation_{angle}.png")
+#                         cv2.imwrite(verify_path, rotated_bev_with_boxes)
                 
-                # Augmentation 2: Scale distance (move objects closer/further)
-                for scale in [-2.5, 2.5]:
-                    # Scale points and labels
-                    scaled_points, scaled_labels = scale_distance_points_and_labels(points, labels, scale)
+#                 # Augmentation 2: Scale distance (move objects closer/further)
+#                 for scale in [-2.5, 2.5]:
+#                     # Scale points and labels
+#                     scaled_points, scaled_labels = scale_distance_points_and_labels(points, labels, scale)
                     
-                    # Create clean BEV image for training
-                    scaled_bev_image = processor.create_bev_image(scaled_points)
+#                     # Create clean BEV image for training
+#                     scaled_bev_image = processor.create_bev_image(scaled_points)
                     
-                    # Process scaled objects and create YOLO labels
-                    scaled_yolo_labels = []
+#                     # Process scaled objects and create YOLO labels
+#                     scaled_yolo_labels = []
                     
-                    for obj in scaled_labels:
-                        if obj['type'] == 'DontCare':
-                            continue
+#                     for obj in scaled_labels:
+#                         if obj['type'] == 'DontCare':
+#                             continue
                             
-                        # Transform 3D box to BEV
-                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                            obj['dimensions'], obj['location'], obj['rotation_y']
-                        )
+#                         # Transform 3D box to BEV
+#                         corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                             obj['dimensions'], obj['location'], obj['rotation_y']
+#                         )
                         
-                        # Create YOLO label
-                        yolo_label = processor.create_yolo_label(
-                            corners_bev, obj['type'], scaled_bev_image.shape[:2]
-                        )
-                        scaled_yolo_labels.append(yolo_label)
+#                         # Create YOLO label
+#                         yolo_label = processor.create_yolo_label(
+#                             corners_bev, obj['type'], scaled_bev_image.shape[:2]
+#                         )
+#                         scaled_yolo_labels.append(yolo_label)
                     
-                    # Create verification image with boxes
-                    scaled_bev_with_boxes = scaled_bev_image.copy()
-                    for obj in scaled_labels:
-                        if obj['type'] == 'DontCare':
-                            continue
+#                     # Create verification image with boxes
+#                     scaled_bev_with_boxes = scaled_bev_image.copy()
+#                     for obj in scaled_labels:
+#                         if obj['type'] == 'DontCare':
+#                             continue
                         
-                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                            obj['dimensions'], obj['location'], obj['rotation_y']
-                        )
-                        scaled_bev_with_boxes = processor.draw_box_on_bev(
-                            scaled_bev_with_boxes, corners_bev, center_bev, obj['type']
-                        )
+#                         corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                             obj['dimensions'], obj['location'], obj['rotation_y']
+#                         )
+#                         scaled_bev_with_boxes = processor.draw_box_on_bev(
+#                             scaled_bev_with_boxes, corners_bev, center_bev, obj['type']
+#                         )
                     
-                    # Only add if we have valid labels
-                    if scaled_yolo_labels:
-                        all_data.append({
-                            'bin_file': bin_file,
-                            'bev_image': scaled_bev_image,  # Clean image without boxes
-                            'yolo_labels': scaled_yolo_labels,
-                            'augmentation': f'scale_{scale}'
-                        })
+#                     # Only add if we have valid labels
+#                     if scaled_yolo_labels:
+#                         all_data.append({
+#                             'bin_file': bin_file,
+#                             'bev_image': scaled_bev_image,  # Clean image without boxes
+#                             'yolo_labels': scaled_yolo_labels,
+#                             'augmentation': f'scale_{scale}'
+#                         })
                 
-                    # Save verification image if needed
-                    if bin_idx < 5:
-                        verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_scale_{scale}.png")
-                        cv2.imwrite(verify_path, scaled_bev_with_boxes)
+#                     # Save verification image if needed
+#                     if bin_idx < 5:
+#                         verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_scale_{scale}.png")
+#                         cv2.imwrite(verify_path, scaled_bev_with_boxes)
                 
-                # Augmentation 3: Shift laterally (left/right)
-                for x_shift in [-2.5, 2.5]:
-                    # Shift points and labels
-                    shifted_points, shifted_labels = shift_lateral_points_and_labels(points, labels, x_shift)
+#                 # Augmentation 3: Shift laterally (left/right)
+#                 for x_shift in [-2.5, 2.5]:
+#                     # Shift points and labels
+#                     shifted_points, shifted_labels = shift_lateral_points_and_labels(points, labels, x_shift)
                     
-                    # Create clean BEV image for training
-                    shifted_bev_image = processor.create_bev_image(shifted_points)
+#                     # Create clean BEV image for training
+#                     shifted_bev_image = processor.create_bev_image(shifted_points)
                     
-                    # Process shifted objects and create YOLO labels
-                    shifted_yolo_labels = []
+#                     # Process shifted objects and create YOLO labels
+#                     shifted_yolo_labels = []
                     
-                    for obj in shifted_labels:
-                        if obj['type'] == 'DontCare':
-                            continue
+#                     for obj in shifted_labels:
+#                         if obj['type'] == 'DontCare':
+#                             continue
                             
-                        # Transform 3D box to BEV
-                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                            obj['dimensions'], obj['location'], obj['rotation_y']
-                        )
+#                         # Transform 3D box to BEV
+#                         corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                             obj['dimensions'], obj['location'], obj['rotation_y']
+#                         )
                         
-                        # Create YOLO label
-                        yolo_label = processor.create_yolo_label(
-                            corners_bev, obj['type'], shifted_bev_image.shape[:2]
-                        )
-                        shifted_yolo_labels.append(yolo_label)
+#                         # Create YOLO label
+#                         yolo_label = processor.create_yolo_label(
+#                             corners_bev, obj['type'], shifted_bev_image.shape[:2]
+#                         )
+#                         shifted_yolo_labels.append(yolo_label)
                     
-                    # Create verification image with boxes
-                    shifted_bev_with_boxes = shifted_bev_image.copy()
-                    for obj in shifted_labels:
-                        if obj['type'] == 'DontCare':
-                            continue
+#                     # Create verification image with boxes
+#                     shifted_bev_with_boxes = shifted_bev_image.copy()
+#                     for obj in shifted_labels:
+#                         if obj['type'] == 'DontCare':
+#                             continue
                         
-                        corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                            obj['dimensions'], obj['location'], obj['rotation_y']
-                        )
-                        shifted_bev_with_boxes = processor.draw_box_on_bev(
-                            shifted_bev_with_boxes, corners_bev, center_bev, obj['type']
-                        )
+#                         corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                             obj['dimensions'], obj['location'], obj['rotation_y']
+#                         )
+#                         shifted_bev_with_boxes = processor.draw_box_on_bev(
+#                             shifted_bev_with_boxes, corners_bev, center_bev, obj['type']
+#                         )
                     
-                    # Only add if we have valid labels
-                    if shifted_yolo_labels:
-                        all_data.append({
-                            'bin_file': bin_file,
-                            'bev_image': shifted_bev_image,  # Clean image without boxes
-                            'yolo_labels': shifted_yolo_labels,
-                            'augmentation': f'x_shift_{x_shift}'
-                        })
+#                     # Only add if we have valid labels
+#                     if shifted_yolo_labels:
+#                         all_data.append({
+#                             'bin_file': bin_file,
+#                             'bev_image': shifted_bev_image,  # Clean image without boxes
+#                             'yolo_labels': shifted_yolo_labels,
+#                             'augmentation': f'x_shift_{x_shift}'
+#                         })
                     
-                    # Save verification image if needed
-                    if bin_idx < 5:
-                        verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_x_shift_{x_shift}.png")
-                        cv2.imwrite(verify_path, shifted_bev_with_boxes)
+#                     # Save verification image if needed
+#                     if bin_idx < 5:
+#                         verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_x_shift_{x_shift}.png")
+#                         cv2.imwrite(verify_path, shifted_bev_with_boxes)
                 
-                # Augmentation 4: Fixed range zoom-in views
-                # Define 7 fixed regions to zoom in
-                fixed_regions = [
-                    {"x_min": 0, "x_max": 10, "y_min": -5, "y_max": 5, "name": "front_center"},
-                    {"x_min": 10, "x_max": 20, "y_min": -5, "y_max": 5, "name": "mid_center"}
-                ]
+#                 # Augmentation 4: Fixed range zoom-in views
+#                 # Define 7 fixed regions to zoom in
+#                 fixed_regions = [
+#                     {"x_min": 0, "x_max": 10, "y_min": -5, "y_max": 5, "name": "front_center"},
+#                     {"x_min": 10, "x_max": 20, "y_min": -5, "y_max": 5, "name": "mid_center"}
+#                 ]
                 
-                # Load config for create_range_adapted_bev_image
-                with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
+#                 # Load config for create_range_adapted_bev_image
+#                 with open(config_path, 'r') as f:
+#                     config = yaml.safe_load(f)
                 
-                for region in fixed_regions:
-                    # Create clean zoomed BEV image, BEV with boxes, and YOLO labels for this fixed region
-                    zoom_bev_clean, zoom_bev_with_boxes, zoom_yolo_labels = create_range_adapted_bev_image(
-                        points, labels, 
-                        region["x_min"], region["x_max"], 
-                        region["y_min"], region["y_max"], 
-                        config
-                    )
+#                 for region in fixed_regions:
+#                     # Create clean zoomed BEV image, BEV with boxes, and YOLO labels for this fixed region
+#                     zoom_bev_clean, zoom_bev_with_boxes, zoom_yolo_labels = create_range_adapted_bev_image(
+#                         points, labels, 
+#                         region["x_min"], region["x_max"], 
+#                         region["y_min"], region["y_max"], 
+#                         config
+#                     )
                     
-                    # Create verification image with boxes
-                    if zoom_yolo_labels:
-                        # Only add if we have valid labels
-                        all_data.append({
-                            'bin_file': bin_file,
-                            'bev_image': zoom_bev_clean,  # Use the clean image for training
-                            'yolo_labels': zoom_yolo_labels,
-                            'augmentation': f'zoom_{region["name"]}'
-                        })
+#                     # Create verification image with boxes
+#                     if zoom_yolo_labels:
+#                         # Only add if we have valid labels
+#                         all_data.append({
+#                             'bin_file': bin_file,
+#                             'bev_image': zoom_bev_clean,  # Use the clean image for training
+#                             'yolo_labels': zoom_yolo_labels,
+#                             'augmentation': f'zoom_{region["name"]}'
+#                         })
                         
-                        # For verification, use the image with boxes that was already created
-                        if bin_idx < 5:
-                            verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_zoom_{region['name']}.png")
-                            cv2.imwrite(verify_path, zoom_bev_with_boxes)
+#                         # For verification, use the image with boxes that was already created
+#                         if bin_idx < 5:
+#                             verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_zoom_{region['name']}.png")
+#                             cv2.imwrite(verify_path, zoom_bev_with_boxes)
                 
-                print(f"Created {len(all_data) - 1} augmented samples for {os.path.basename(bin_file)}")
+#                 print(f"Created {len(all_data) - 1} augmented samples for {os.path.basename(bin_file)}")
             
-            # Augmentation 5: Height shift (new)
-            for height_shift in [-10, -5, 5, 10]:
-                # Convert cm to meters
-                height_shift_m = height_shift / 100.0
+#             # Augmentation 5: Height shift (new)
+#             for height_shift in [-10, -5, 5, 10]:
+#                 # Convert cm to meters
+#                 height_shift_m = height_shift / 100.0
                 
-                # Apply height shift to points using the existing function
-                shifted_points, shifted_labels = shift_vertical_points_and_labels(points, labels, height_shift_m)
+#                 # Apply height shift to points using the existing function
+#                 shifted_points, shifted_labels = shift_vertical_points_and_labels(points, labels, height_shift_m)
                 
-                # Create clean BEV image for training
-                shifted_bev_image = processor.create_bev_image(shifted_points)
+#                 # Create clean BEV image for training
+#                 shifted_bev_image = processor.create_bev_image(shifted_points)
                 
-                # Process objects and create YOLO labels
-                shifted_yolo_labels = []
+#                 # Process objects and create YOLO labels
+#                 shifted_yolo_labels = []
                 
-                for obj in shifted_labels:
-                    if obj['type'] == 'DontCare':
-                        continue
+#                 for obj in shifted_labels:
+#                     if obj['type'] == 'DontCare':
+#                         continue
                         
-                    # Transform 3D box to BEV
-                    corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                        obj['dimensions'], obj['location'], obj['rotation_y']
-                    )
+#                     # Transform 3D box to BEV
+#                     corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                         obj['dimensions'], obj['location'], obj['rotation_y']
+#                     )
                     
-                    # Create YOLO label
-                    yolo_label = processor.create_yolo_label(
-                        corners_bev, obj['type'], shifted_bev_image.shape[:2]
-                    )
-                    shifted_yolo_labels.append(yolo_label)
+#                     # Create YOLO label
+#                     yolo_label = processor.create_yolo_label(
+#                         corners_bev, obj['type'], shifted_bev_image.shape[:2]
+#                     )
+#                     shifted_yolo_labels.append(yolo_label)
                 
-                # Create verification image with boxes
-                shifted_bev_with_boxes = shifted_bev_image.copy()
-                for obj in shifted_labels:
-                    if obj['type'] == 'DontCare':
-                        continue
+#                 # Create verification image with boxes
+#                 shifted_bev_with_boxes = shifted_bev_image.copy()
+#                 for obj in shifted_labels:
+#                     if obj['type'] == 'DontCare':
+#                         continue
                     
-                    corners_bev, center_bev = processor.transform_3d_box_to_bev(
-                        obj['dimensions'], obj['location'], obj['rotation_y']
-                    )
-                    shifted_bev_with_boxes = processor.draw_box_on_bev(
-                        shifted_bev_with_boxes, corners_bev, center_bev, obj['type']
-                    )
+#                     corners_bev, center_bev = processor.transform_3d_box_to_bev(
+#                         obj['dimensions'], obj['location'], obj['rotation_y']
+#                     )
+#                     shifted_bev_with_boxes = processor.draw_box_on_bev(
+#                         shifted_bev_with_boxes, corners_bev, center_bev, obj['type']
+#                     )
                 
-                # Only add if we have valid labels
-                if shifted_yolo_labels:
-                    all_data.append({
-                        'bin_file': bin_file,
-                        'bev_image': shifted_bev_image,  # Clean image without boxes
-                        'yolo_labels': shifted_yolo_labels,
-                        'augmentation': f'height_shift_{height_shift}'
-                    })
+#                 # Only add if we have valid labels
+#                 if shifted_yolo_labels:
+#                     all_data.append({
+#                         'bin_file': bin_file,
+#                         'bev_image': shifted_bev_image,  # Clean image without boxes
+#                         'yolo_labels': shifted_yolo_labels,
+#                         'augmentation': f'height_shift_{height_shift}'
+#                     })
                 
-                # Save verification image if needed
-                if bin_idx < 5:
-                    verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_height_shift_{height_shift}.png")
-                    cv2.imwrite(verify_path, shifted_bev_with_boxes)
+#                 # Save verification image if needed
+#                 if bin_idx < 5:
+#                     verify_path = os.path.join(verification_dir, f"{os.path.splitext(os.path.basename(bin_file))[0]}_height_shift_{height_shift}.png")
+#                     cv2.imwrite(verify_path, shifted_bev_with_boxes)
             
-        except Exception as e:
-            print(f"Error processing {bin_file}: {e}")
-            continue
+#         except Exception as e:
+#             print(f"Error processing {bin_file}: {e}")
+#             continue
     
-    print(f"Successfully processed {len(all_data)} samples (original + augmented)")
+#     print(f"Successfully processed {len(all_data)} samples (original + augmented)")
     
-    # Split into train/val sets
-    # Make sure samples from the same bin file don't appear in both train and val
-    unique_bin_files = list(set(item['bin_file'] for item in all_data))
-    random.shuffle(unique_bin_files)
+#     # Split into train/val sets
+#     # Make sure samples from the same bin file don't appear in both train and val
+#     unique_bin_files = list(set(item['bin_file'] for item in all_data))
+#     random.shuffle(unique_bin_files)
     
-    # Split ratio
-    train_val_split = 0.8
+#     # Split ratio
+#     train_val_split = 0.8
     
-    # Split bin files into train and val
-    train_bin_files = unique_bin_files[:int(train_val_split * len(unique_bin_files))]
-    val_bin_files = unique_bin_files[int(train_val_split * len(unique_bin_files)):]
+#     # Split bin files into train and val
+#     train_bin_files = unique_bin_files[:int(train_val_split * len(unique_bin_files))]
+#     val_bin_files = unique_bin_files[int(train_val_split * len(unique_bin_files)):]
     
-    # Split data based on bin files
-    train_data = [item for item in all_data if item['bin_file'] in train_bin_files]
-    val_data = [item for item in all_data if item['bin_file'] in val_bin_files]
+#     # Split data based on bin files
+#     train_data = [item for item in all_data if item['bin_file'] in train_bin_files]
+#     val_data = [item for item in all_data if item['bin_file'] in val_bin_files]
     
-    print(f"Training set: {len(train_data)} samples")
-    print(f"Validation set: {len(val_data)} samples")
+#     print(f"Training set: {len(train_data)} samples")
+#     print(f"Validation set: {len(val_data)} samples")
     
-    # Save images and labels for training
-    for i, item in enumerate(tqdm(train_data, desc="Saving training data")):
-        train_img_path = os.path.join(train_img_dir, f"train_{i}.png")
-        train_label_path = os.path.join(train_label_dir, f"train_{i}.txt")
+#     # Save images and labels for training
+#     for i, item in enumerate(tqdm(train_data, desc="Saving training data")):
+#         train_img_path = os.path.join(train_img_dir, f"train_{i}.png")
+#         train_label_path = os.path.join(train_label_dir, f"train_{i}.txt")
         
-        cv2.imwrite(train_img_path, item['bev_image'])  # Clean image without boxes
-        with open(train_label_path, 'w') as f:
-            for label_str in item['yolo_labels']:
-                f.write(label_str + '\n')
+#         cv2.imwrite(train_img_path, item['bev_image'])  # Clean image without boxes
+#         with open(train_label_path, 'w') as f:
+#             for label_str in item['yolo_labels']:
+#                 f.write(label_str + '\n')
     
-    # Save images and labels for validation
-    for i, item in enumerate(tqdm(val_data, desc="Saving validation data")):
-        val_img_path = os.path.join(val_img_dir, f"val_{i}.png")
-        val_label_path = os.path.join(val_label_dir, f"val_{i}.txt")
+#     # Save images and labels for validation
+#     for i, item in enumerate(tqdm(val_data, desc="Saving validation data")):
+#         val_img_path = os.path.join(val_img_dir, f"val_{i}.png")
+#         val_label_path = os.path.join(val_label_dir, f"val_{i}.txt")
         
-        cv2.imwrite(val_img_path, item['bev_image'])  # Clean image without boxes
-        with open(val_label_path, 'w') as f:
-            for label_str in item['yolo_labels']:
-                f.write(label_str + '\n')
+#         cv2.imwrite(val_img_path, item['bev_image'])  # Clean image without boxes
+#         with open(val_label_path, 'w') as f:
+#             for label_str in item['yolo_labels']:
+#                 f.write(label_str + '\n')
     
-    # Create custom YAML dataset configuration
-    dataset_config = {
-        'path': dataset_dir,
-        'train': os.path.join('train', 'images'),
-        'val': os.path.join('val', 'images'),
-        'nc': 5,  # Updated: 5 classes instead of 6 (removed DontCare)
-        'names': ['Car', 'Pedestrian', 'Cyclist', 'Bus', 'Truck']  # Updated class order without DontCare
-    }
+#     # Create custom YAML dataset configuration
+#     dataset_config = {
+#         'path': dataset_dir,
+#         'train': os.path.join('train', 'images'),
+#         'val': os.path.join('val', 'images'),
+#         'nc': 5,  # Updated: 5 classes instead of 6 (removed DontCare)
+#         'names': ['Car', 'Pedestrian', 'Cyclist', 'Bus', 'Truck']  # Updated class order without DontCare
+#     }
     
-    # Create a temporary YAML file with dataset configuration
-    dataset_yaml = os.path.join(dataset_dir, 'dataset.yaml')
-    with open(dataset_yaml, 'w') as f:
-        yaml.dump(dataset_config, f)
+#     # Create a temporary YAML file with dataset configuration
+#     dataset_yaml = os.path.join(dataset_dir, 'dataset.yaml')
+#     with open(dataset_yaml, 'w') as f:
+#         yaml.dump(dataset_config, f)
     
-    # Check CUDA availability and use appropriate device
-    if device.startswith('cuda') and not torch.cuda.is_available():
-        print("CUDA is not available, falling back to CPU")
-        device = 'cpu'
+#     # Check CUDA availability and use appropriate device
+#     if device.startswith('cuda') and not torch.cuda.is_available():
+#         print("CUDA is not available, falling back to CPU")
+#         device = 'cpu'
     
-    # Create a new model from scratch
-    print("\n===== CREATING NEW MODEL FROM SCRATCH =====")
-    model = YOLO('yolov8n.yaml')  # Create a new YOLOv8 model from scratch
+#     # Create a new model from scratch
+#     print("\n===== CREATING NEW MODEL FROM SCRATCH =====")
+#     model = YOLO('yolov8n.yaml')  # Create a new YOLOv8 model from scratch
     
-    # Prepare training arguments
-    train_args = {
-        'epochs': epochs,
-        'imgsz': img_size,
-        'batch': batch_size,
-        'device': device,
-        'workers': 8,
-        'project': os.path.join(output_dir, 'bev-from-scratch'),
-        'name': 'train',
-        'exist_ok': True,
-        'pretrained': False,
-        'optimizer': 'SGD',  # or 'Adam'
-        'lr0': 0.01,
-        'weight_decay': 0.0005,
-        'cache': True,
-        'data': dataset_yaml,
-        'patience': 50,  # Early stopping patience
-        'save_period': 10  # Save checkpoint every 10 epochs
-    }
+#     # Prepare training arguments
+#     train_args = {
+#         'epochs': epochs,
+#         'imgsz': img_size,
+#         'batch': batch_size,
+#         'device': device,
+#         'workers': 8,
+#         'project': os.path.join(output_dir, 'bev-from-scratch'),
+#         'name': 'train',
+#         'exist_ok': True,
+#         'pretrained': False,
+#         'optimizer': 'SGD',  # or 'Adam'
+#         'lr0': 0.01,
+#         'weight_decay': 0.0005,
+#         'cache': True,
+#         'data': dataset_yaml,
+#         'patience': 50,  # Early stopping patience
+#         'save_period': 10  # Save checkpoint every 10 epochs
+#     }
     
-    print(f"Using device: {device}")
+#     print(f"Using device: {device}")
     
-    # Train the model
-    print(f"Training for {epochs} epochs with batch size {batch_size}")
-    model.train(**train_args)
+#     # Train the model
+#     print(f"Training for {epochs} epochs with batch size {batch_size}")
+#     model.train(**train_args)
     
-    # Return the path to best weights
-    weights_dir = os.path.join(output_dir, 'bev-from-scratch', 'train', 'weights')
-    best_weights = os.path.join(weights_dir, 'best.pt')
+#     # Return the path to best weights
+#     weights_dir = os.path.join(output_dir, 'bev-from-scratch', 'train', 'weights')
+#     best_weights = os.path.join(weights_dir, 'best.pt')
     
-    # Also save a copy with a more descriptive name
-    final_weights = os.path.join(output_dir, 'bev_all_data_from_scratch_final.pt')
-    if os.path.exists(best_weights):
-        shutil.copy(best_weights, final_weights)
+#     # Also save a copy with a more descriptive name
+#     final_weights = os.path.join(output_dir, 'bev_all_data_from_scratch_final.pt')
+#     if os.path.exists(best_weights):
+#         shutil.copy(best_weights, final_weights)
     
-    # Run inference with the trained model on a validation image
-    print("\n===== RUNNING INFERENCE WITH TRAINED MODEL =====")
+#     # Run inference with the trained model on a validation image
+#     print("\n===== RUNNING INFERENCE WITH TRAINED MODEL =====")
     
-    # Choose a random validation image
-    if val_data:
-        val_item = random.choice(val_data)
-        val_img = val_item['bev_image']
-        val_labels = val_item['yolo_labels']
-        val_bin_file = val_item['bin_file']
+#     # Choose a random validation image
+#     if val_data:
+#         val_item = random.choice(val_data)
+#         val_img = val_item['bev_image']
+#         val_labels = val_item['yolo_labels']
+#         val_bin_file = val_item['bin_file']
         
-        # Run inference
-        results = model.predict(val_img, conf=0.25)
+#         # Run inference
+#         results = model.predict(val_img, conf=0.25)
         
-        # Visualize results
-        result_img = results[0].plot()
-        result_path = os.path.join(verification_dir, "model_prediction.png")
-        cv2.imwrite(result_path, result_img)
+#         # Visualize results
+#         result_img = results[0].plot()
+#         result_path = os.path.join(verification_dir, "model_prediction.png")
+#         cv2.imwrite(result_path, result_img)
         
-        print(f"Inference result saved to: {result_path}")
+#         print(f"Inference result saved to: {result_path}")
         
-        # Create a comparison image with ground truth
-        gt_img = val_img.copy()
-        for label_str in val_labels:
-            parts = label_str.split()
-            if len(parts) == 5:
-                class_id = int(parts[0])
-                x_center = float(parts[1])
-                y_center = float(parts[2])
-                width = float(parts[3])
-                height = float(parts[4])
+#         # Create a comparison image with ground truth
+#         gt_img = val_img.copy()
+#         for label_str in val_labels:
+#             parts = label_str.split()
+#             if len(parts) == 5:
+#                 class_id = int(parts[0])
+#                 x_center = float(parts[1])
+#                 y_center = float(parts[2])
+#                 width = float(parts[3])
+#                 height = float(parts[4])
                 
-                # Convert normalized coordinates to pixel coordinates
-                img_h, img_w = gt_img.shape[:2]
-                x_center_px = int(x_center * img_w)
-                y_center_px = int(y_center * img_h)
-                width_px = int(width * img_w)
-                height_px = int(height * img_h)
+#                 # Convert normalized coordinates to pixel coordinates
+#                 img_h, img_w = gt_img.shape[:2]
+#                 x_center_px = int(x_center * img_w)
+#                 y_center_px = int(y_center * img_h)
+#                 width_px = int(width * img_w)
+#                 height_px = int(height * img_h)
                 
-                # Calculate box corners
-                x1 = int(x_center_px - width_px / 2)
-                y1 = int(y_center_px - height_px / 2)
-                x2 = int(x_center_px + width_px / 2)
-                y2 = int(y_center_px + height_px / 2)
+#                 # Calculate box corners
+#                 x1 = int(x_center_px - width_px / 2)
+#                 y1 = int(y_center_px - height_px / 2)
+#                 x2 = int(x_center_px + width_px / 2)
+#                 y2 = int(y_center_px + height_px / 2)
                 
-                # Draw box
-                color = processor.colors[processor.class_names[class_id]]
-                cv2.rectangle(gt_img, (x1, y1), (x2, y2), color, 2)
+#                 # Draw box
+#                 color = processor.colors[processor.class_names[class_id]]
+#                 cv2.rectangle(gt_img, (x1, y1), (x2, y2), color, 2)
                 
-                # Add label
-                cv2.putText(gt_img, processor.class_names[class_id], 
-                          (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+#                 # Add label
+#                 cv2.putText(gt_img, processor.class_names[class_id], 
+#                           (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         
-        # Save ground truth image
-        gt_path = os.path.join(verification_dir, "ground_truth.png")
-        cv2.imwrite(gt_path, gt_img)
+#         # Save ground truth image
+#         gt_path = os.path.join(verification_dir, "ground_truth.png")
+#         cv2.imwrite(gt_path, gt_img)
         
-        # Create side-by-side comparison
-        comparison = np.hstack((gt_img, result_img))
-        comparison_path = os.path.join(verification_dir, "gt_vs_prediction.png")
-        cv2.imwrite(comparison_path, comparison)
+#         # Create side-by-side comparison
+#         comparison = np.hstack((gt_img, result_img))
+#         comparison_path = os.path.join(verification_dir, "gt_vs_prediction.png")
+#         cv2.imwrite(comparison_path, comparison)
         
-        print(f"Comparison image saved to: {comparison_path}")
+#         print(f"Comparison image saved to: {comparison_path}")
     
-    # Clean up temporary directories
-    # shutil.rmtree(os.path.join(output_dir, 'tmp'), ignore_errors=True)
+#     # Clean up temporary directories
+#     # shutil.rmtree(os.path.join(output_dir, 'tmp'), ignore_errors=True)
     
-    return best_weights
+#     return best_weights
 
 def generate_augmented_dataset(bin_dir=None, label_dir=None, bin_file=None, label_file=None, config_path=None, output_dir=None, verification_dir=None):
     """
