@@ -1,0 +1,28 @@
+# /lidar3d_detection_ws/train/config/preprocessing_config.yaml
+
+BEV_HEIGHT: 608
+BEV_WIDTH: 608
+
+boundary:
+  minX: 0
+  maxX: 50
+  minY: -25
+  maxY: 25
+  minZ: -1
+  maxZ: 5
+
+DISCRETIZATION: 0.05
+Z_RESOLUTION: 0.2
+
+perspective_width: 800
+perspective_height: 600
+fov_horizontal: 90
+fov_vertical: 60
+
+# צבעים בפורמט BGR
+colors:
+  Car: [0, 0, 255]      # אדום
+  Pedestrian: [0, 255, 0]  # ירוק
+  Cyclist: [255, 0, 0]   # כחול
+  Bus: [255, 0, 255]    # מגנטה
+  Truck: [255, 255, 0]   # טורקיז

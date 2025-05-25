@@ -30,19 +30,19 @@ from models.yolo_bev import create_full_trainable_model, create_transfer_learnin
 from data_processing.preproccesing_0 import PointCloudProcessor
 
 # Global configuration
-DEFAULT_CONFIG = {
-    'bin_dir': os.getcwd() + '/data/innoviz',
-    'label_dir': os.getcwd() + '/data/labels',
-    'config_path': os.getcwd() + '/train/config/preprocessing_config.yaml',
-    'output_base': os.getcwd() + '/train',
-    'train_val_split': 0.8,  # 80% training, 20% validation
-    'epochs': 70,
-    'batch_size': 8,
-    'img_size': 608,
-    'augmentations': False,
-    'augmentation_factor': 3,  # Number of augmented samples per original
-    'device': 'cpu',  # 'cpu' or 'cuda:0'
-}
+# DEFAULT_CONFIG = {
+#     'bin_dir': os.getcwd() + '/data/innoviz',
+#     'label_dir': os.getcwd() + '/data/labels',
+#     'config_path': os.getcwd() + '/train/config/preprocessing_config.yaml',
+#     'output_base': os.getcwd() + '/train',
+#     'train_val_split': 0.8,  # 80% training, 20% validation
+#     'epochs': 70,
+#     'batch_size': 8,
+#     'img_size': 608,
+#     'augmentations': False,
+#     'augmentation_factor': 3,  # Number of augmented samples per original
+#     'device': 'cpu',  # 'cpu' or 'cuda:0'
+# }
 
 
 
@@ -1858,220 +1858,220 @@ def train_from_checkpoint(bin_dir, label_dir, config_path, output_dir, checkpoin
     
     return best_weights
 
-def main():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Train YOLO model on BEV images')
+# def main():
+#     # Parse command line arguments
+#     parser = argparse.ArgumentParser(description='Train YOLO model on BEV images')
     
-    # Dataset generation options
-    parser.add_argument('--bin_dir', type=str, default='data/innoviz/', 
-                        help='Directory containing bin files')
-    parser.add_argument('--label_dir', type=str, default='data/labels/', 
-                        help='Directory containing label files')
-    parser.add_argument('--config_path', type=str, default='train/config/preprocessing_config.yaml', 
-                        help='Path to preprocessing config file')
-    parser.add_argument('--output_base', type=str, default='train', 
-                        help='Base directory for output')
+#     # Dataset generation options
+#     parser.add_argument('--bin_dir', type=str, default='data/innoviz/', 
+#                         help='Directory containing bin files')
+#     parser.add_argument('--label_dir', type=str, default='data/labels/', 
+#                         help='Directory containing label files')
+#     parser.add_argument('--config_path', type=str, default='train/config/preprocessing_config.yaml', 
+#                         help='Path to preprocessing config file')
+#     parser.add_argument('--output_base', type=str, default='train', 
+#                         help='Base directory for output')
     
-    # Training options
-    parser.add_argument('--epochs', type=int, default=100, 
-                        help='Number of training epochs')
-    parser.add_argument('--batch', type=int, default=16, 
-                        help='Batch size')
-    parser.add_argument('--img_size', type=int, default=640, 
-                        help='Image size')
-    parser.add_argument('--device', type=str, default='auto', 
-                        help='Device to use (cuda:0, cpu, or auto)')
+#     # Training options
+#     parser.add_argument('--epochs', type=int, default=100, 
+#                         help='Number of training epochs')
+#     parser.add_argument('--batch', type=int, default=16, 
+#                         help='Batch size')
+#     parser.add_argument('--img_size', type=int, default=640, 
+#                         help='Image size')
+#     parser.add_argument('--device', type=str, default='auto', 
+#                         help='Device to use (cuda:0, cpu, or auto)')
     
-    # Model options
-    parser.add_argument('--transfer_learning', action='store_true', 
-                        help='Use transfer learning')
-    parser.add_argument('--unfreeze_layers', type=int, default=10, 
-                        help='Number of layers to unfreeze for transfer learning')
-    parser.add_argument('--continue_from', type=str, default='', 
-                        help='Path to model weights to continue training from')
+#     # Model options
+#     parser.add_argument('--transfer_learning', action='store_true', 
+#                         help='Use transfer learning')
+#     parser.add_argument('--unfreeze_layers', type=int, default=10, 
+#                         help='Number of layers to unfreeze for transfer learning')
+#     parser.add_argument('--continue_from', type=str, default='', 
+#                         help='Path to model weights to continue training from')
     
-    # Augmentation options
-    parser.add_argument('--augmentations', action='store_true', 
-                        help='Enable data augmentation')
-    parser.add_argument('--augmentation_factor', type=int, default=2, 
-                        help='Augmentation factor (multiplier for dataset size)')
+#     # Augmentation options
+#     parser.add_argument('--augmentations', action='store_true', 
+#                         help='Enable data augmentation')
+#     parser.add_argument('--augmentation_factor', type=int, default=2, 
+#                         help='Augmentation factor (multiplier for dataset size)')
     
-    # Single image test options
-    parser.add_argument('--single_image_test', action='store_true', 
-                        help='Train on a single image for testing')
-    parser.add_argument('--bin_file', type=str, default='', 
-                        help='Path to specific bin file for single image test')
-    parser.add_argument('--label_file', type=str, default='', 
-                        help='Path to specific label file for single image test')
-    parser.add_argument('--train_from_scratch', action='store_true',
-                        help='Train from scratch on a single image')
+#     # Single image test options
+#     parser.add_argument('--single_image_test', action='store_true', 
+#                         help='Train on a single image for testing')
+#     parser.add_argument('--bin_file', type=str, default='', 
+#                         help='Path to specific bin file for single image test')
+#     parser.add_argument('--label_file', type=str, default='', 
+#                         help='Path to specific label file for single image test')
+#     parser.add_argument('--train_from_scratch', action='store_true',
+#                         help='Train from scratch on a single image')
     
-    # All data training option
-    parser.add_argument('--all_data_from_scratch', action='store_true',
-                        help='Train from scratch on all data with detailed visualization')
+#     # All data training option
+#     parser.add_argument('--all_data_from_scratch', action='store_true',
+#                         help='Train from scratch on all data with detailed visualization')
     
-    # New option for generating augmented dataset
-    parser.add_argument('--generate_augmented_dataset', action='store_true',
-                        help='Generate augmented dataset without training')
+#     # New option for generating augmented dataset
+#     parser.add_argument('--generate_augmented_dataset', action='store_true',
+#                         help='Generate augmented dataset without training')
     
-    # New option for continuing training from a checkpoint
-    parser.add_argument('--continue_training', action='store_true',
-                        help='Continue training from a checkpoint')
-    parser.add_argument('--checkpoint_path', type=str, default='/lidar3d_detection_ws/train/output/best.pt',
-                        help='Path to checkpoint for continuing training')
+#     # New option for continuing training from a checkpoint
+#     parser.add_argument('--continue_training', action='store_true',
+#                         help='Continue training from a checkpoint')
+#     parser.add_argument('--checkpoint_path', type=str, default='/lidar3d_detection_ws/train/output/best.pt',
+#                         help='Path to checkpoint for continuing training')
 
-    args = parser.parse_args()
+#     args = parser.parse_args()
 
-    # Handle device selection - auto-detect if set to "auto"
-    if args.device == "auto":
-        args.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        print(f"Auto-selected device: {args.device}")
+#     # Handle device selection - auto-detect if set to "auto"
+#     if args.device == "auto":
+#         args.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+#         print(f"Auto-selected device: {args.device}")
     
-    # Create output directory
-    output_dir = os.path.join(args.output_base, 'output')
-    os.makedirs(output_dir, exist_ok=True)
+#     # Create output directory
+#     output_dir = os.path.join(args.output_base, 'output')
+#     os.makedirs(output_dir, exist_ok=True)
     
-    # Create verification directory
-    verification_dir = os.path.join(output_dir, 'label_verification')
-    os.makedirs(verification_dir, exist_ok=True)
+#     # Create verification directory
+#     verification_dir = os.path.join(output_dir, 'label_verification')
+#     os.makedirs(verification_dir, exist_ok=True)
     
-    # Generate augmented dataset if requested
-    if args.generate_augmented_dataset:
-        print("Generating augmented dataset...")
+#     # Generate augmented dataset if requested
+#     if args.generate_augmented_dataset:
+#         print("Generating augmented dataset...")
         
-        # Setup output directories
-        output_dir = os.path.join(args.output_base, 'output')
-        os.makedirs(output_dir, exist_ok=True)
+#         # Setup output directories
+#         output_dir = os.path.join(args.output_base, 'output')
+#         os.makedirs(output_dir, exist_ok=True)
         
-        verification_dir = os.path.join(output_dir, 'label_verification')
-        os.makedirs(verification_dir, exist_ok=True)
+#         verification_dir = os.path.join(output_dir, 'label_verification')
+#         os.makedirs(verification_dir, exist_ok=True)
         
-        # Check if we're processing a single file or a directory
-        if args.bin_file and args.label_file:
-            print(f"Processing single file: {args.bin_file}")
-            bin_files = [args.bin_file]  # Use only the specified file
-            augmented_data = generate_augmented_dataset(
-                bin_file=args.bin_file,
-                label_file=args.label_file,
-                config_path=args.config_path,
-                output_dir=os.path.join(output_dir, 'augmented_dataset'),
-                verification_dir=verification_dir
-            )
-        else:
-            # Process all files in directory
-            augmented_data = generate_augmented_dataset(
-                bin_dir=args.bin_dir,
-                label_dir=args.label_dir,
-                config_path=args.config_path,
-                output_dir=os.path.join(output_dir, 'augmented_dataset'),
-                verification_dir=verification_dir
-            )
+#         # Check if we're processing a single file or a directory
+#         if args.bin_file and args.label_file:
+#             print(f"Processing single file: {args.bin_file}")
+#             bin_files = [args.bin_file]  # Use only the specified file
+#             augmented_data = generate_augmented_dataset(
+#                 bin_file=args.bin_file,
+#                 label_file=args.label_file,
+#                 config_path=args.config_path,
+#                 output_dir=os.path.join(output_dir, 'augmented_dataset'),
+#                 verification_dir=verification_dir
+#             )
+#         else:
+#             # Process all files in directory
+#             augmented_data = generate_augmented_dataset(
+#                 bin_dir=args.bin_dir,
+#                 label_dir=args.label_dir,
+#                 config_path=args.config_path,
+#                 output_dir=os.path.join(output_dir, 'augmented_dataset'),
+#                 verification_dir=verification_dir
+#             )
         
-        # Create directories for augmented dataset
-        augmented_train_dir = os.path.join(output_dir, 'augmented_dataset', 'train')
-        augmented_val_dir = os.path.join(output_dir, 'augmented_dataset', 'val')
+#         # Create directories for augmented dataset
+#         augmented_train_dir = os.path.join(output_dir, 'augmented_dataset', 'train')
+#         augmented_val_dir = os.path.join(output_dir, 'augmented_dataset', 'val')
         
-        augmented_train_img_dir = os.path.join(augmented_train_dir, 'images')
-        augmented_train_label_dir = os.path.join(augmented_train_dir, 'labels')
+#         augmented_train_img_dir = os.path.join(augmented_train_dir, 'images')
+#         augmented_train_label_dir = os.path.join(augmented_train_dir, 'labels')
         
-        augmented_val_img_dir = os.path.join(augmented_val_dir, 'images')
-        augmented_val_label_dir = os.path.join(augmented_val_dir, 'labels')
+#         augmented_val_img_dir = os.path.join(augmented_val_dir, 'images')
+#         augmented_val_label_dir = os.path.join(augmented_val_dir, 'labels')
         
-        os.makedirs(augmented_train_img_dir, exist_ok=True)
-        os.makedirs(augmented_train_label_dir, exist_ok=True)
-        os.makedirs(augmented_val_img_dir, exist_ok=True)
-        os.makedirs(augmented_val_label_dir, exist_ok=True)
+#         os.makedirs(augmented_train_img_dir, exist_ok=True)
+#         os.makedirs(augmented_train_label_dir, exist_ok=True)
+#         os.makedirs(augmented_val_img_dir, exist_ok=True)
+#         os.makedirs(augmented_val_label_dir, exist_ok=True)
         
-        # Split into train/val
-        train_val_split = 0.8  # 80% training, 20% validation
-        train_size = int(len(augmented_data) * train_val_split)
+#         # Split into train/val
+#         train_val_split = 0.8  # 80% training, 20% validation
+#         train_size = int(len(augmented_data) * train_val_split)
         
-        # Shuffle data
-        random.shuffle(augmented_data)
+#         # Shuffle data
+#         random.shuffle(augmented_data)
         
-        train_data = augmented_data[:train_size]
-        val_data = augmented_data[train_size:]
+#         train_data = augmented_data[:train_size]
+#         val_data = augmented_data[train_size:]
         
-        print(f"Training set: {len(train_data)} files")
-        print(f"Validation set: {len(val_data)} files")
+#         print(f"Training set: {len(train_data)} files")
+#         print(f"Validation set: {len(val_data)} files")
         
-        # Save images and labels for training
-        for i, item in enumerate(tqdm(train_data, desc="Saving augmented training data")):
-            train_img_path = os.path.join(augmented_train_img_dir, f"train_{i}.png")
-            train_label_path = os.path.join(augmented_train_label_dir, f"train_{i}.txt")
+#         # Save images and labels for training
+#         for i, item in enumerate(tqdm(train_data, desc="Saving augmented training data")):
+#             train_img_path = os.path.join(augmented_train_img_dir, f"train_{i}.png")
+#             train_label_path = os.path.join(augmented_train_label_dir, f"train_{i}.txt")
             
-            cv2.imwrite(train_img_path, item['bev_image'])
-            with open(train_label_path, 'w') as f:
-                for label_str in item['yolo_labels']:
-                    f.write(label_str + '\n')
+#             cv2.imwrite(train_img_path, item['bev_image'])
+#             with open(train_label_path, 'w') as f:
+#                 for label_str in item['yolo_labels']:
+#                     f.write(label_str + '\n')
         
-        # Save images and labels for validation
-        for i, item in enumerate(tqdm(val_data, desc="Saving augmented validation data")):
-            val_img_path = os.path.join(augmented_val_img_dir, f"val_{i}.png")
-            val_label_path = os.path.join(augmented_val_label_dir, f"val_{i}.txt")
+#         # Save images and labels for validation
+#         for i, item in enumerate(tqdm(val_data, desc="Saving augmented validation data")):
+#             val_img_path = os.path.join(augmented_val_img_dir, f"val_{i}.png")
+#             val_label_path = os.path.join(augmented_val_label_dir, f"val_{i}.txt")
             
-            cv2.imwrite(val_img_path, item['bev_image'])
-            with open(val_label_path, 'w') as f:
-                for label_str in item['yolo_labels']:
-                    f.write(label_str + '\n')
+#             cv2.imwrite(val_img_path, item['bev_image'])
+#             with open(val_label_path, 'w') as f:
+#                 for label_str in item['yolo_labels']:
+#                     f.write(label_str + '\n')
         
-        print(f"Augmented dataset saved to {os.path.join(output_dir, 'augmented_dataset')}")
-        return
+#         print(f"Augmented dataset saved to {os.path.join(output_dir, 'augmented_dataset')}")
+#         return
     
-    # אם נבחרה האופציה לאימון על תמונה בודדת
-    elif args.single_image_test:
-        if not args.bin_file or not args.label_file:
-            print("Error: Must provide bin_file and label_file for single image test")
-            return
+#     # אם נבחרה האופציה לאימון על תמונה בודדת
+#     elif args.single_image_test:
+#         if not args.bin_file or not args.label_file:
+#             print("Error: Must provide bin_file and label_file for single image test")
+#             return
         
-        if args.train_from_scratch:
-            print("Training from scratch on a single image...")
-            best_weights = train_on_single_image_from_scratch(
-                bin_file=args.bin_file,
-                label_file=args.label_file,
-                config_path=args.config_path,
-                output_dir=output_dir,
-                epochs=args.epochs,
-                batch_size=args.batch,
-                img_size=args.img_size,
-                device=args.device
-            )
+#         if args.train_from_scratch:
+#             print("Training from scratch on a single image...")
+#             best_weights = train_on_single_image_from_scratch(
+#                 bin_file=args.bin_file,
+#                 label_file=args.label_file,
+#                 config_path=args.config_path,
+#                 output_dir=output_dir,
+#                 epochs=args.epochs,
+#                 batch_size=args.batch,
+#                 img_size=args.img_size,
+#                 device=args.device
+#             )
     
-    # אם נבחרה האופציה לאימון על כל הנתונים מאפס
-    elif args.all_data_from_scratch:
-        print("Training from scratch on all data...")
-        best_weights = train_on_all_data_from_scratch(
-            bin_dir=args.bin_dir,
-            label_dir=args.label_dir,
-            config_path=args.config_path,
-            output_dir=output_dir,
-            epochs=args.epochs,
-            batch_size=args.batch,
-            img_size=args.img_size,
-            device=args.device,
-            augmentations=args.augmentations,
-            augmentation_factor=args.augmentation_factor
-        )
+#     # אם נבחרה האופציה לאימון על כל הנתונים מאפס
+#     elif args.all_data_from_scratch:
+#         print("Training from scratch on all data...")
+#         best_weights = train_on_all_data_from_scratch(
+#             bin_dir=args.bin_dir,
+#             label_dir=args.label_dir,
+#             config_path=args.config_path,
+#             output_dir=output_dir,
+#             epochs=args.epochs,
+#             batch_size=args.batch,
+#             img_size=args.img_size,
+#             device=args.device,
+#             augmentations=args.augmentations,
+#             augmentation_factor=args.augmentation_factor
+#         )
     
-    # אם נבחרה האופציה להמשך אימון ממודל קיים
-    elif args.continue_training:
-        print("Continuing training from checkpoint...")
-        best_weights = train_from_checkpoint(
-            bin_dir=args.bin_dir,
-            label_dir=args.label_dir,
-            config_path=args.config_path,
-            output_dir=output_dir,
-            checkpoint_path=args.checkpoint_path,
-            epochs=args.epochs,
-            batch_size=args.batch,
-            img_size=args.img_size,
-            device=args.device,
-            augmentations=args.augmentations,
-            augmentation_factor=args.augmentation_factor
-        )
+#     # אם נבחרה האופציה להמשך אימון ממודל קיים
+#     elif args.continue_training:
+#         print("Continuing training from checkpoint...")
+#         best_weights = train_from_checkpoint(
+#             bin_dir=args.bin_dir,
+#             label_dir=args.label_dir,
+#             config_path=args.config_path,
+#             output_dir=output_dir,
+#             checkpoint_path=args.checkpoint_path,
+#             epochs=args.epochs,
+#             batch_size=args.batch,
+#             img_size=args.img_size,
+#             device=args.device,
+#             augmentations=args.augmentations,
+#             augmentation_factor=args.augmentation_factor
+#         )
     
 
-    print(f"Training complete. Best weights saved to: {best_weights}")
+#     print(f"Training complete. Best weights saved to: {best_weights}")
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

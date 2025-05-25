@@ -9,9 +9,9 @@ def parse_args():
                         help='Directory containing bin files')
     parser.add_argument('--label_dir', type=str, default='lidar3d_detection_ws/data/labels/', 
                         help='Directory containing label files')
-    parser.add_argument('--config_path', type=str, default='lidar3d_detection_ws/train/config/preprocessing_config.yaml', 
+    parser.add_argument('--config_path', type=str, default='config/preprocessing_config.yaml', 
                         help='Path to preprocessing config file')
-    parser.add_argument('--output_base', type=str, default='lidar3d_detection_ws/train', 
+    parser.add_argument('--output_base', type=str, default='train', 
                         help='Base directory for output')
     
     # Training options

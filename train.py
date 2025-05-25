@@ -22,7 +22,7 @@ def main():
     if args.single_image_test:
         best_weights = handle_single_image_training(args, output_dir)
     elif args.all_data_from_scratch:
-        best_weights = handle_train_all_data(args, output_dir)
+        best_weights = handle_train_all_data(args, output_dir)  #DONE
     elif args.continue_training:
         best_weights = handle_continue_training(args, output_dir)
 
