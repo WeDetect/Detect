@@ -51,7 +51,7 @@ class LidarDetectionNode(Node):
         # Load parameters
         self.declare_parameter('pointcloud_topic', '/lidar_streamer_first_reflection')
         self.declare_parameter('markers_topic', '/detected_objects')
-        self.declare_parameter('model_path', '/lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/best.pt')
+        self.declare_parameter('model_path', '/lidar3d_detection_ws/best_inferences/best.pt')
         self.declare_parameter('config_path', '/lidar3d_detection_ws/train/config/preprocessing_config.yaml')
         self.declare_parameter('confidence_threshold', 0.3)
         

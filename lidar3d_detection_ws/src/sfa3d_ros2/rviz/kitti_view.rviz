@@ -1,0 +1,28 @@
+#making rviz file and fixed frame to velodyne
+
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /PointCloud21
+        - /MarkerArray1
+      Splitter Ratio: 0.5
+    Tree Height: 549
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Class: rviz_default_plugins/PointCloud2
+      Name: PointCloud2
+      Topic: /velodyne_points
+      Use Fixed Frame: true
+      Use rainbow: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: MarkerArray
+      Topic: /sfa3d/detections
+      Use Fixed Frame: true
+  Global Options:
+    Fixed Frame: velodyne
+    Frame Rate: 30
