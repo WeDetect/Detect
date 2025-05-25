@@ -22,17 +22,6 @@ from lidar3d_detection_ws.train.data_processing.augmentation import (
 )
 from lidar3d_detection_ws.train.data_processing.preproccesing_0 import PointCloudProcessor
 
-# Training Configuration (These are already passed as args, but if you wanted to define defaults centrally)
-# YOLO_MODEL_NAME = 'yolov8n.yaml'
-# OPTIMIZER = 'SGD'
-# LEARNING_RATE = 0.01
-# WEIGHT_DECAY = 0.0005
-# PATIENCE = 50
-# SAVE_PERIOD = 10
-# WORKERS = 8
-# CONFIDENCE_THRESHOLD = 0.25
-
-# --- Refactored Functions ---
 
 def _create_output_directories(output_dir):
     """
