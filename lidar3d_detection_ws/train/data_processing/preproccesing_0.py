@@ -281,11 +281,13 @@ class PointCloudProcessor:
         ])
         
         # Rotation matrix
+        # ✅ NEW - CORRECT: סיבוב סביב Z (במישור X-Y)
         R = np.array([
-            [np.cos(rotation_y), 0, np.sin(rotation_y)],
-            [0, 1, 0],
-            [-np.sin(rotation_y), 0, np.cos(rotation_y)]
+            [np.cos(rotation_y), -np.sin(rotation_y), 0],
+            [np.sin(rotation_y),  np.cos(rotation_y), 0],
+            [0,                   0,                  1]
         ])
+
         
         # Apply rotation and translation
         corners_3d = np.dot(R, corners_3d.T).T

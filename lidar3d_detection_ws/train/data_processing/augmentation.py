@@ -2,58 +2,59 @@
 import numpy as np
 import math
 import cv2
+import copy
+
 
 
 
 def rotate_points_and_labels(points, labels, angle_degrees):
     """
-    Rotate point cloud and labels around the z-axis
-    
+    Rotate point cloud and KITTI labels (3D boxes) around the Z-axis.
+
     Args:
-        points: Nx4 array of points (x, y, z, intensity)
-        labels: List of label dictionaries
-        angle_degrees: Rotation angle in degrees
-        
+        points (np.ndarray): Nx4 array of points (x, y, z, intensity)
+        labels (list of dict): KITTI-style label dicts with 'location', 'rotation_y', etc.
+        angle_degrees (float): Rotation angle in degrees.
+
     Returns:
-        rotated_points: Rotated point cloud
-        rotated_labels: Rotated labels
+        rotated_points: Rotated point cloud (Nx4)
+        rotated_labels: Labels with rotated positions and yaw
     """
-    # Convert angle to radians
     angle_rad = np.radians(angle_degrees)
-    
-    # Create rotation matrix
-    cos_angle = np.cos(angle_rad)
-    sin_angle = np.sin(angle_rad)
-    rotation_matrix = np.array([
-        [cos_angle, -sin_angle, 0],
-        [sin_angle, cos_angle, 0],
-        [0, 0, 1]
+    cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+
+    # Rotation matrix around Z
+    R = np.array([
+        [cos_a, -sin_a, 0],
+        [sin_a,  cos_a, 0],
+        [0,      0,     1]
     ])
-    
-    # Rotate points (x, y, z)
+
+    # Rotate points
     rotated_points = points.copy()
-    rotated_points[:, :3] = np.dot(points[:, :3], rotation_matrix.T)
-    
+    rotated_points[:, :3] = np.dot(points[:, :3], R.T)
+
     # Rotate labels
     rotated_labels = []
     for label in labels:
-        # Create a deep copy of the label
-        rotated_label = label.copy()
-        
-        # Rotate location
-        x, y, z = label['location']
-        rotated_x = x * cos_angle - y * sin_angle
-        rotated_y = x * sin_angle + y * cos_angle
-        rotated_label['location'] = [rotated_x, rotated_y, z]
-        
-        # Adjust rotation_y
-        rotated_label['rotation_y'] = (label['rotation_y'] + angle_rad) % (2 * np.pi)
-        
-        # Add to rotated labels
-        rotated_labels.append(rotated_label)
-    
-    return rotated_points, rotated_labels
+        rotated_label = copy.deepcopy(label)
 
+        # Rotate location (x, y)
+        x, y, z = label['location']
+        rotated_xyz = np.dot(R, np.array([x, y, z]))
+        rotated_label['location'] = rotated_xyz.tolist()
+
+        # Adjust yaw: rotate in global coordinates
+        yaw = label['rotation_y']
+        new_yaw = yaw + angle_rad
+
+        # Normalize to [-pi, pi]
+        new_yaw = (new_yaw + np.pi) % (2 * np.pi) - np.pi
+        rotated_label['rotation_y'] = new_yaw
+
+        rotated_labels.append(rotated_label)
+
+    return rotated_points, rotated_labels
 
 def scale_distance_points_and_labels(points, labels, scale_factor):
     """
