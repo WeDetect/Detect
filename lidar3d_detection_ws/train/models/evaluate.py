@@ -23,7 +23,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 # Import from our other modules
-from data_processing.preprocessing import load_config, read_bin_file, read_label_file, create_bev_image
+from data_processing.preprocessing import load_config, read_bin_file, read_label_file
 from data_processing.preproccesing_0 import convert_labels_to_yolo_format, PointCloudProcessor
 from data_processing.augmentation import create_range_adapted_bev_image
 
@@ -395,15 +395,15 @@ def main():
     parser = argparse.ArgumentParser(description='Evaluate YOLO model on BEV images')
     
     # Model and dataset options
-    parser.add_argument('--model_path', type=str, default='/lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/best.pt', 
+    parser.add_argument('--model_path', type=str, default='train/output/bev-from-scratch/train/weights/best.pt', 
                         help='Path to trained model weights')
-    parser.add_argument('--bin_dir', type=str, default='/lidar3d_detection_ws/data/innoviz/', 
+    parser.add_argument('--bin_dir', type=str, default='data/innoviz/', 
                         help='Directory containing bin files')
-    parser.add_argument('--label_dir', type=str, default='/lidar3d_detection_ws/data/labels/', 
+    parser.add_argument('--label_dir', type=str, default='data/labels/', 
                         help='Directory containing label files')
-    parser.add_argument('--config_path', type=str, default='/lidar3d_detection_ws/train/config/preprocessing_config.yaml', 
+    parser.add_argument('--config_path', type=str, default='train/config/preprocessing_config.yaml', 
                         help='Path to preprocessing config file')
-    parser.add_argument('--output_dir', type=str, default='/lidar3d_detection_ws/train/evaluation', 
+    parser.add_argument('--output_dir', type=str, default='train/evaluation', 
                         help='Output directory for evaluation results')
     
     # Evaluation options

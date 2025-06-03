@@ -1,35 +1,27 @@
 Classification Report
 =====================
 
-Model: /lidar3d_detection_ws/train/output/bev-from-scratch/train/weights/best.pt
-Confidence threshold: 0.25
+Model: /home/user/deep_learning/Detect/lidar3d_detection_ws/best.pt
+Confidence threshold: 0.2
 IoU threshold: 0.5
 
 Class-wise Performance:
 ----------------------
 Car:
-  Precision: 0.9798
-  Recall: 0.9985
-  F1-Score: 0.9891
-  Support: 680
-  Average IoU: 0.9329
+  Precision: 0.8095
+  Recall: 0.6296
+  F1-Score: 0.7083
+  Support: 27
+  Average IoU: 0.6314
 
 Pedestrian:
-  Precision: 0.8652
-  Recall: 0.7262
-  F1-Score: 0.7896
-  Support: 168
-  Average IoU: 0.8158
-
-Cyclist:
-  Precision: 1.0000
-  Recall: 1.0000
-  F1-Score: 1.0000
-  Support: 39
-  Average IoU: 0.8186
+  Precision: 0.0000
+  Recall: 0.0000
+  F1-Score: 0.0000
+  Support: 6
 
 Overall Performance:
 -------------------
-Average Precision: 0.9483
-Average Recall: 0.9082
-Macro Avg F1-Score: 0.9262
+Average Precision: 0.4048
+Average Recall: 0.3148
+Macro Avg F1-Score: 0.3542
