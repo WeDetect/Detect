@@ -64,11 +64,14 @@ data/*
 !data/.gitkeep
 !data/innoviz/
 !data/labels/
+#git ignore the all data folder and what inside it
+data/
 # Ignore contents of the subdirectories but keep their structure
 data/innoviz/*
 data/labels/*
 # Keep the subdirectories themselves
-!data/innoviz/.gitkeep
+!data/innoviz/.g
+tkeep
 !data/labels/.gitkeep
 
 # Ignore logs folder

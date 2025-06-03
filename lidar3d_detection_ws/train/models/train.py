@@ -12,6 +12,8 @@ import shutil
 from ultralytics import YOLO
 import torch
 import glob
+import copy
+
 
 # Add parent directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1922,10 +1924,15 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
 
 #     args = parser.parse_args()
 
-#     # Handle device selection - auto-detect if set to "auto"
-#     if args.device == "auto":
-#         args.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-#         print(f"Auto-selected device: {args.device}")
+    # # Validate checkpoint path if continuing training
+    # if args.continue_training and not os.path.exists(args.checkpoint_path):
+    #     print(f"Error: Checkpoint file not found at {args.checkpoint_path}")
+    #     return
+
+    # # Handle device selection - auto-detect if set to "auto"
+    # if args.device == "auto":
+    #     args.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    #     print(f"Auto-selected device: {args.device}")
     
 #     # Create output directory
 #     output_dir = os.path.join(args.output_base, 'output')
@@ -2053,9 +2060,8 @@ def create_range_adapted_bev_image(points, labels, x_min, x_max, y_min, y_max, c
 #             augmentation_factor=args.augmentation_factor
 #         )
     
-#     # אם נבחרה האופציה להמשך אימון ממודל קיים
-#     elif args.continue_training:
-#         print("Continuing training from checkpoint...")
+# #     elif args.continue_training:
+#         print("\nContinuing training from checkpoint...")
 #         best_weights = train_from_checkpoint(
 #             bin_dir=args.bin_dir,
 #             label_dir=args.label_dir,

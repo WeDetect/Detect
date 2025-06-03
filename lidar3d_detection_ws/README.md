@@ -1,6 +1,6 @@
-
-
 # LiDAR 3D Detection Project
+
+![Main Image](images/WhatsApp%20Image%202025-05-25%20at%2012.20.22.jpeg)
 
 This project provides a complete solution for labeling LiDAR point clouds, training detection models, and deploying object detection systems for 3D perception.
 
@@ -10,6 +10,7 @@ This project provides a complete solution for labeling LiDAR point clouds, train
 - [Model Training](#model-training)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
+- [Model Process](#model-process)
 
 ## Setup
 
@@ -31,7 +32,12 @@ cd Detect
 mkdir -p data/innoviz data/labels
 ```
 
-3. Run the Docker container:
+3. Download the Docker image:
+```bash
+docker pull oridaniel100/lidar3d_detection_img:latest
+```
+
+4. Run the Docker container:
 ```bash
 lidar3d_detection='docker run -it --name lidar3d_detection_container \
 --privileged --ipc host --pid host \
@@ -43,7 +49,7 @@ lidar3d_detection='docker run -it --name lidar3d_detection_container \
 oridaniel100/lidar3d_detection_img:latest'
 ```
 
-4. For subsequent terminal sessions, use:
+5. For subsequent terminal sessions, use:
 ```bash
 docker start lidar3d_detection_container
 docker exec -it lidar3d_detection_container bash
@@ -200,3 +206,73 @@ ultralytics
 open3d
 tqdm
 ```
+
+## Model Process
+
+### WeDetect – 3D Object Detection System Based on LiDAR
+
+1. **Introduction**
+   As part of an advanced project in artificial intelligence, a unique real-time object detection system was developed using 3D LiDAR technology combined with an advanced visual detection model of the YOLO type.
+
+   The system converts scan data into a Bird's Eye View (BEV), processes the image, detects objects within it, and then calculates their full position in space (X, Y, Z) with high accuracy.
+
+   The system is designed for various uses, including:
+   - Autonomous vehicle systems
+   - Urban infrastructure monitoring
+   - Intersection safety systems
+   - Advanced robotics
+
+2. **Detection Process – From LiDAR to Final Result**
+   Our system is built from several sequential stages:
+   - 3D LiDAR scanning generates a point cloud file.
+   - Preprocessing converts the data into a 2D Bird's Eye View (BEV) image.
+   - This image is fed into a YOLO model specially adapted for this input format.
+   - Postprocessing converts the detection results into precise spatial positions (including depth, height, and direction calculations).
+
+   The system is trained to detect over 95% of objects in the scene, maintaining precise positioning and tracking capability for each object.
+
+3. **Advantages of LiDAR Compared to a Regular Camera**
+   - Operates in varying conditions: The system functions properly at night, in rain, fog, and is unaffected by shadows, sun glare, or high contrast.
+   - High geometric accuracy: A full 3D scene allows for a true understanding of the environment, including height, volume, and distance between objects.
+   - Real-time 3D mapping: Can calculate distances, identify the height of bridges or signs, and alert to relevant dangers – for example, a pedestrian crossing in a dangerous location.
+   - Wide integration: The system can be integrated into any technology – Web, ROS, edge applications, cloud systems, and more.
+
+4. **Disadvantages and Challenges**
+   - Heavy computational load: A LiDAR file contains a vast amount of data, sometimes several megabytes per single frame, requiring stronger computational resources compared to regular image processing.
+   - Slower speed: Compared to camera-based systems operating at high FPS, our system operates at a relatively slow pace but yields higher quality data.
+
+5. **System Detection Configuration**
+   - Horizontal range (sideways): Up to 15 meters in each direction
+   - Depth range (forward distance): Up to 30 meters forward
+   - Height range: From 2 meters below the zero point, up to a height of 4.5 meters
+
+   The model was designed and trained on a LiDAR sensor installed at a height of 2.2 meters – a common height for placement on a car roof, street pole, traffic light, smart camera, and more.
+
+6. **Sensor and System Alignment Before Use**
+   To ensure the system's success in real-time, it is necessary to perform prior alignment of the LiDAR:
+   - Correct Roll, Pitch, Yaw angles according to TF data.
+   - Maintain a leveled floor at height Z=0.
+   - Operate based on a fixed world frame.
+
+   During training, we ensured that all scenes were reset so that the floor appears in a uniform color (black), while objects (people, vehicles, bicycles) stand out above it – ideally suited for machine learning.
+
+   Additionally, there is a Node operating in ROS that performs the necessary TF corrections – it must be activated before running the model.
+
+7. **Information on Innoviz Sensor (Example Model)**
+   The LiDAR sensor we used comes from Innoviz and includes:
+   - Horizontal field of view: Approximately 120 degrees
+   - Vertical field of view: Approximately 26 degrees (depending on the model)
+   - Scanning accuracy: 0.05 cm
+   - Scanning frequency: 5-25 hz
+
+   (It is recommended to complete the specific details from the product page on the Innoviz website: [Innoviz](https://www.innoviz.tech/))
+
+8. **Source Code and System Operation**
+   The system code is located in the following repository: [GitHub Repository](https://github.com/WeDetect/Detect)
+
+   The repo includes:
+   - Preprocessing code for converting LiDAR to BEV
+   - Adapted YOLO model
+   - Postprocessing code for X, Y, Z positioning
+   - Image examples
+   - Operating instructions on ROS2 and Docker
