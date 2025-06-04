@@ -1,0 +1,16 @@
+{
+    "classes": [
+        {
+            "name": "cart",
+            "id": 0,
+            "color": "#ff0000"
+        }
+    ],
+    "default": 0,
+    "type": "object_detection",
+    "format": "kitti_untransformed",
+    "created_with": {
+        "name": "labelCloud",
+        "version": "1.1.1"
+    }
+}

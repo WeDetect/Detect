@@ -65,15 +65,15 @@ class LidarDetectionNode(Node):
         # Load parameters
         self.declare_parameter('pointcloud_topic', '/lidar_streamer_first_reflection')
         self.declare_parameter('markers_topic', '/detected_objects')
-        self.declare_parameter('model_path', '/lidar3d_detection_ws/best_inferences/best.pt')
+        self.declare_parameter('model_path', '/lidar3d_detection_ws/best_inferences/best_all_data.pt')
         self.declare_parameter('config_path', '/lidar3d_detection_ws/train/config/preprocessing_config.yaml')
         self.declare_parameter('confidence_threshold', 0.3)
         
         # Point cloud filtering parameters
         self.declare_parameter('x_min', 0.0)
-        self.declare_parameter('x_max', 30.0)
-        self.declare_parameter('y_min', -15.0)
-        self.declare_parameter('y_max', 15.0)
+        self.declare_parameter('x_max', 70.0)
+        self.declare_parameter('y_min', -35.0)
+        self.declare_parameter('y_max', 35.0)
         self.declare_parameter('z_min', -2.5)
         self.declare_parameter('z_max', 4.0)
         
@@ -161,7 +161,7 @@ class LidarDetectionNode(Node):
         self.smoothing_factor = 0.3
         
         # Marker lifetime in seconds
-        self.marker_lifetime = 0.1  # Longer than the typical update rate
+        self.marker_lifetime = 0.3  # Longer than the typical update rate
         
         # Add performance tracking
         self.processing_times = []
