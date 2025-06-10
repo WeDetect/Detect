@@ -13,7 +13,7 @@ from sensor_msgs.msg import PointCloud2, Image
 import sensor_msgs_py.point_cloud2 as pc2
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point, PointStamped
-from std_msgs.msg import ColorRGBA, Header
+from std_msgs.msg import ColorRGBA, Header, String
 import tf2_ros
 from tf2_ros import TransformException
 from scipy.spatial.transform import Rotation
@@ -24,6 +24,7 @@ import time
 import numba
 from numba import jit, prange
 from rclpy.clock import Clock
+import json
 
 
 # Add parent directory to path for imports
@@ -71,9 +72,9 @@ class LidarDetectionNode(Node):
         
         # Point cloud filtering parameters
         self.declare_parameter('x_min', 0.0)
-        self.declare_parameter('x_max', 30.0)
-        self.declare_parameter('y_min', -15.0)
-        self.declare_parameter('y_max', 15.0)
+        self.declare_parameter('x_max', 70.0)
+        self.declare_parameter('y_min', -35.0)
+        self.declare_parameter('y_max', 35.0)
         self.declare_parameter('z_min', -2.5)
         self.declare_parameter('z_max', 4.0)
         
@@ -152,6 +153,10 @@ class LidarDetectionNode(Node):
         # Add detection image publisher
         self.detection_image_pub = self.create_publisher(Image, '/detection_image', 10)
         
+        # Add statistics publishers (new)
+        self.detection_counts_pub = self.create_publisher(String, '/detection_counts', 10)
+        self.detection_bounds_pub = self.create_publisher(String, '/detection_bounds', 10)
+        
         self.get_logger().info("Lidar detection node initialized")
         
         # Add a dictionary to store previous marker positions for smoothing
@@ -166,6 +171,21 @@ class LidarDetectionNode(Node):
         # Add performance tracking
         self.processing_times = []
         self.max_times_to_track = 10
+        
+        # Variables for tracking detection statistics (new)
+        self.current_detection_counts = {
+            'Car': 0,
+            'Pedestrian': 0,
+            'Cyclist': 0,
+            'Bus': 0,
+            'Truck': 0,
+            'Total': 0
+        }
+        
+        # Create timer for publishing statistics every 2 seconds (new)
+        self.stats_timer = self.create_timer(2.0, self.publish_statistics)
+        
+        self.get_logger().info("Detection statistics publishers initialized")
         
     # Optimized function for creating BEV image
     @staticmethod
@@ -435,6 +455,9 @@ class LidarDetectionNode(Node):
             inference_end = time.time()
             self.get_logger().info(f"{bcolors.OKGREEN}Model inference took {inference_end - inference_start:.4f}s{bcolors.ENDC}")
             
+            # Update detection statistics for periodic publishing (new)
+            self.update_detection_statistics(results[0] if results else None, filtered_points)
+            
             # Adjust yaw for bounding boxes
             adjusted_detections = self.adjust_yaw_for_bounding_boxes(results)
             
@@ -561,7 +584,7 @@ class LidarDetectionNode(Node):
             marker.type = Marker.LINE_LIST
             marker.action = Marker.ADD
             marker.pose.orientation.w = 1.0
-            marker.scale.x = 0.05
+            marker.scale.x = 0.1
             marker.lifetime = rclpy.duration.Duration(seconds=0.3).to_msg()
 
             half_length = world_length / 2
@@ -630,6 +653,110 @@ class LidarDetectionNode(Node):
 
         self.previous_marker_ids = current_ids
         return markers
+
+    # Add method to publish statistics every 2 seconds (new)
+    def publish_statistics(self):
+        """Publish detection statistics every 2 seconds"""
+        try:
+            # Publish detection counts
+            counts_data = {
+                'timestamp': time.time(),
+                'vehicles': {
+                    'car': self.current_detection_counts['Car'],
+                    'bus': self.current_detection_counts['Bus'],
+                    'truck': self.current_detection_counts['Truck'],
+                    'total_vehicles': self.current_detection_counts['Car'] + self.current_detection_counts['Bus'] + self.current_detection_counts['Truck']
+                },
+                'vulnerable_road_users': {
+                    'pedestrian': self.current_detection_counts['Pedestrian'],
+                    'cyclist': self.current_detection_counts['Cyclist'],
+                    'total_vru': self.current_detection_counts['Pedestrian'] + self.current_detection_counts['Cyclist']
+                },
+                'summary': {
+                    'total_objects': self.current_detection_counts['Total'],
+                    'active_classes': sum(1 for count in self.current_detection_counts.values() if count > 0 and isinstance(count, int))
+                },
+                'message': f"Vehicles: Car({self.current_detection_counts['Car']}), Bus({self.current_detection_counts['Bus']}), Truck({self.current_detection_counts['Truck']}) | "
+                          f"VRU: Pedestrian({self.current_detection_counts['Pedestrian']}), Cyclist({self.current_detection_counts['Cyclist']}) | "
+                          f"Total: {self.current_detection_counts['Total']}"
+            }
+            
+            counts_msg = String()
+            counts_msg.data = json.dumps(counts_data, indent=2)
+            self.detection_counts_pub.publish(counts_msg)
+            
+            # Publish detection range (configured parameters)
+            bounds_data = {
+                'timestamp': time.time(),
+                'detection_range': {
+                    'x_forward': {
+                        'min': self.x_min,
+                        'max': self.x_max,
+                        'range': self.x_max - self.x_min
+                    },
+                    'y_lateral': {
+                        'min': self.y_min,
+                        'max': self.y_max,
+                        'range': self.y_max - self.y_min
+                    },
+                    'z_vertical': {
+                        'min': self.z_min,
+                        'max': self.z_max,
+                        'range': self.z_max - self.z_min
+                    }
+                },
+                'message': f"Detection Range - X(forward): [{self.x_min:.1f}, {self.x_max:.1f}]m, "
+                          f"Y(lateral): [{self.y_min:.1f}, {self.y_max:.1f}]m, "
+                          f"Z(vertical): [{self.z_min:.1f}, {self.z_max:.1f}]m"
+            }
+            
+            bounds_msg = String()
+            bounds_msg.data = json.dumps(bounds_data, indent=2)
+            self.detection_bounds_pub.publish(bounds_msg)
+            
+            self.get_logger().info(f"{bcolors.OKCYAN}Published statistics: {counts_data['message']}{bcolors.ENDC}")
+            self.get_logger().info(f"{bcolors.OKBLUE}Detection range: {bounds_data['message']}{bcolors.ENDC}")
+            
+        except Exception as e:
+            self.get_logger().error(f"Error publishing statistics: {str(e)}")
+
+    # Add method to update detection statistics (new)
+    def update_detection_statistics(self, results, filtered_points):
+        """Update current detection counts based on latest results"""
+        try:
+            # Reset counts
+            self.current_detection_counts = {
+                'Car': 0,
+                'Pedestrian': 0,
+                'Cyclist': 0,
+                'Bus': 0,
+                'Truck': 0,
+                'Total': 0
+            }
+            
+            # If no results, return early
+            if results is None or not hasattr(results, 'boxes') or results.boxes is None or len(results.boxes) == 0:
+                return
+            
+            boxes = results.boxes
+            for i, box in enumerate(boxes):
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                cls = int(box.cls[0].item())
+                conf = box.conf[0].item()
+                
+                # Map class index (assuming use_mapped_class=True)
+                mapped_cls = cls + 1  # 0->1 (Car), 1->2 (Pedestrian), 2->3 (Cyclist)
+                
+                if mapped_cls < len(self.class_names):
+                    class_name = self.class_names[mapped_cls]
+                    
+                    # Update counts
+                    if class_name in self.current_detection_counts:
+                        self.current_detection_counts[class_name] += 1
+                        self.current_detection_counts['Total'] += 1
+            
+        except Exception as e:
+            self.get_logger().error(f"Error updating detection statistics: {str(e)}")
 
 
 def main(args=None):

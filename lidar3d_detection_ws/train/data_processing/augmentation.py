@@ -1,4 +1,3 @@
-
 import numpy as np
 import math
 import cv2
@@ -9,16 +8,16 @@ import copy
 
 def rotate_points_and_labels(points, labels, angle_degrees):
     """
-    Rotate point cloud and KITTI labels (3D boxes) around the Z-axis.
+    Efficiently rotate point cloud and KITTI labels (3D boxes) around Z-axis.
 
     Args:
         points (np.ndarray): Nx4 array of points (x, y, z, intensity)
-        labels (list of dict): KITTI-style label dicts with 'location', 'rotation_y', etc.
-        angle_degrees (float): Rotation angle in degrees.
+        labels (list of dict): KITTI-style label dicts
+        angle_degrees (float): Rotation angle in degrees
 
     Returns:
-        rotated_points: Rotated point cloud (Nx4)
-        rotated_labels: Labels with rotated positions and yaw
+        rotated_points: Nx4 array
+        rotated_labels: list of dicts
     """
     angle_rad = np.radians(angle_degrees)
     cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
@@ -28,38 +27,36 @@ def rotate_points_and_labels(points, labels, angle_degrees):
         [cos_a, -sin_a, 0],
         [sin_a,  cos_a, 0],
         [0,      0,     1]
-    ])
+    ], dtype=np.float32)
 
-    # Rotate points
+    # Rotate points using matrix multiplication (fast!)
     rotated_points = points.copy()
-    rotated_points[:, :3] = np.dot(points[:, :3], R.T)
+    rotated_points[:, :3] = points[:, :3] @ R.T
 
-    # Rotate labels
+    # Efficient label processing: extract all locations to a matrix
+    if labels:
+        locs = np.array([label['location'] for label in labels], dtype=np.float32)  # (N, 3)
+        rotated_locs = locs @ R.T  # Rotate all locations at once
+
+        # Adjust yaws
+        yaws = np.array([label['rotation_y'] for label in labels], dtype=np.float32)
+        new_yaws = (yaws + angle_rad + np.pi) % (2 * np.pi) - np.pi
+
+        # Build new labels
+        rotated_labels = []
+        for i, label in enumerate(labels):
+            new_label = label.copy()
+            new_label['location'] = rotated_locs[i].tolist()
+            new_label['rotation_y'] = float(new_yaws[i])
+            rotated_labels.append(new_label)
+    else:
     rotated_labels = []
-    for label in labels:
-        rotated_label = copy.deepcopy(label)
-
-        # Rotate location (x, y)
-        x, y, z = label['location']
-        rotated_xyz = np.dot(R, np.array([x, y, z]))
-        rotated_label['location'] = rotated_xyz.tolist()
-
-        # Adjust yaw: rotate in global coordinates
-        yaw = label['rotation_y']
-        new_yaw = yaw + angle_rad
-
-        # Normalize to [-pi, pi]
-        new_yaw = (new_yaw + np.pi) % (2 * np.pi) - np.pi
-        rotated_label['rotation_y'] = new_yaw
-
-        rotated_labels.append(rotated_label)
 
     return rotated_points, rotated_labels
 
 def scale_distance_points_and_labels(points, labels, scale_factor):
     """
-    Scale the distance of points and labels along X axis
-    Positive scale_factor moves points away, negative brings them closer
+    Efficiently scale the distance of points and labels along X axis
     
     Args:
         points: Nx4 point cloud array (x, y, z, intensity)
@@ -70,37 +67,36 @@ def scale_distance_points_and_labels(points, labels, scale_factor):
         scaled_points: Scaled point cloud
         scaled_labels: Updated labels with new positions
     """
-    # Copy points to avoid modifying the original
-    scaled_points = np.copy(points)
-    
-    # Apply scaling to X coordinate
+    # Scale points efficiently using array operations
+    scaled_points = points.copy()
     scaled_points[:, 0] += scale_factor
     
-    # Update labels
     if labels is None:
         return scaled_points, None
         
+    # Process all non-DontCare labels at once
     scaled_labels = []
-    for label in labels:
+    valid_labels = [label for label in labels if label['type'] != 'DontCare']
+    
+    if valid_labels:
+        # Extract locations as array
+        locs = np.array([label['location'] for label in valid_labels])
+        locs[:, 0] += scale_factor  # Scale X coordinates
+        
+        # Create new labels with scaled locations
+        for i, label in enumerate(valid_labels):
         new_label = label.copy()
-        
-        # Skip DontCare objects
-        if new_label['type'] == 'DontCare':
+            new_label['location'] = locs[i].tolist()
             scaled_labels.append(new_label)
-            continue
-        
-        # Scale location
-        x, y, z = new_label['location']
-        new_label['location'] = [x + scale_factor, y, z]
-        
-        scaled_labels.append(new_label)
+    
+    # Add back DontCare labels unchanged
+    scaled_labels.extend([label.copy() for label in labels if label['type'] == 'DontCare'])
     
     return scaled_points, scaled_labels
 
 def shift_lateral_points_and_labels(points, labels, shift_amount):
     """
-    Shift points and labels laterally (left/right along Y axis)
-    Positive shift moves right, negative moves left
+    Efficiently shift points and labels laterally (left/right along Y axis)
     
     Args:
         points: Nx4 point cloud array (x, y, z, intensity)
@@ -111,37 +107,36 @@ def shift_lateral_points_and_labels(points, labels, shift_amount):
         shifted_points: Shifted point cloud
         shifted_labels: Updated labels with new positions
     """
-    # Copy points to avoid modifying the original
-    shifted_points = np.copy(points)
-    
-    # Apply shift to Y coordinate
+    # Shift points efficiently using array operations
+    shifted_points = points.copy()
     shifted_points[:, 1] += shift_amount
     
-    # Update labels
     if labels is None:
         return shifted_points, None
         
+    # Process all non-DontCare labels at once
     shifted_labels = []
-    for label in labels:
+    valid_labels = [label for label in labels if label['type'] != 'DontCare']
+    
+    if valid_labels:
+        # Extract locations as array
+        locs = np.array([label['location'] for label in valid_labels])
+        locs[:, 1] += shift_amount  # Shift Y coordinates
+        
+        # Create new labels with shifted locations
+        for i, label in enumerate(valid_labels):
         new_label = label.copy()
-        
-        # Skip DontCare objects
-        if new_label['type'] == 'DontCare':
+            new_label['location'] = locs[i].tolist()
             shifted_labels.append(new_label)
-            continue
-        
-        # Shift location
-        x, y, z = new_label['location']
-        new_label['location'] = [x, y + shift_amount, z]
-        
-        shifted_labels.append(new_label)
+    
+    # Add back DontCare labels unchanged
+    shifted_labels.extend([label.copy() for label in labels if label['type'] == 'DontCare'])
     
     return shifted_points, shifted_labels
 
 def shift_vertical_points_and_labels(points, labels, shift_amount):
     """
-    Shift points and labels vertically (up/down along Z axis)
-    Positive shift moves up, negative moves down
+    Efficiently shift points and labels vertically (up/down along Z axis)
     
     Args:
         points: Nx4 point cloud array (x, y, z, intensity)
@@ -152,30 +147,30 @@ def shift_vertical_points_and_labels(points, labels, shift_amount):
         shifted_points: Shifted point cloud
         shifted_labels: Updated labels with new positions
     """
-    # Copy points to avoid modifying the original
-    shifted_points = np.copy(points)
-    
-    # Apply shift to Z coordinate
+    # Shift points efficiently using array operations
+    shifted_points = points.copy()
     shifted_points[:, 2] += shift_amount
     
-    # Update labels
     if labels is None:
         return shifted_points, None
         
+    # Process all non-DontCare labels at once
     shifted_labels = []
-    for label in labels:
+    valid_labels = [label for label in labels if label['type'] != 'DontCare']
+    
+    if valid_labels:
+        # Extract locations as array
+        locs = np.array([label['location'] for label in valid_labels])
+        locs[:, 2] += shift_amount  # Shift Z coordinates
+        
+        # Create new labels with shifted locations
+        for i, label in enumerate(valid_labels):
         new_label = label.copy()
-        
-        # Skip DontCare objects
-        if new_label['type'] == 'DontCare':
+            new_label['location'] = locs[i].tolist()
             shifted_labels.append(new_label)
-            continue
-        
-        # Shift location
-        x, y, z = new_label['location']
-        new_label['location'] = [x, y, z + shift_amount]
-        
-        shifted_labels.append(new_label)
+    
+    # Add back DontCare labels unchanged
+    shifted_labels.extend([label.copy() for label in labels if label['type'] == 'DontCare'])
     
     return shifted_points, shifted_labels
 
@@ -279,7 +274,7 @@ def save_label_file(labels, output_path):
 
 def filter_points_by_range(points, labels, x_min, x_max, y_min, y_max):
     """
-    Filter points to keep only those within the specified X and Y range
+    Efficiently filter points within specified X and Y range
     
     Args:
         points: Nx4 point cloud array (x, y, z, intensity)
@@ -291,35 +286,37 @@ def filter_points_by_range(points, labels, x_min, x_max, y_min, y_max):
         filtered_points: Filtered point cloud
         filtered_labels: Updated labels that fall within the range
     """
-    # Copy points to avoid modifying the original
-    filtered_points = np.copy(points)
+    # Create mask for points using vectorized operations
+    x_mask = (points[:, 0] >= x_min) & (points[:, 0] <= x_max)
+    y_mask = (points[:, 1] >= y_min) & (points[:, 1] <= y_max)
+    mask = x_mask & y_mask
     
-    # Create a mask for points that fall within the specified range
-    mask = (filtered_points[:, 0] >= x_min) & (filtered_points[:, 0] <= x_max) & \
-           (filtered_points[:, 1] >= y_min) & (filtered_points[:, 1] <= y_max)
+    # Apply mask to points
+    filtered_points = points[mask]
     
-    # Apply the mask to filter points
-    filtered_points = filtered_points[mask]
-    
-    # Update labels
     if labels is None:
         return filtered_points, None
         
+    # Process labels efficiently
     filtered_labels = []
-    for label in labels:
-        new_label = label.copy()
+    valid_labels = [label for label in labels if label['type'] != 'DontCare']
+    
+    if valid_labels:
+        # Extract locations as array
+        locs = np.array([label['location'] for label in valid_labels])
         
-        # Skip DontCare objects
-        if new_label['type'] == 'DontCare':
-            filtered_labels.append(new_label)
-            continue
+        # Create mask for labels
+        label_x_mask = (locs[:, 0] >= x_min) & (locs[:, 0] <= x_max)
+        label_y_mask = (locs[:, 1] >= y_min) & (locs[:, 1] <= y_max)
+        label_mask = label_x_mask & label_y_mask
         
-        # Get label location
-        x, y, z = new_label['location']
-        
-        # Check if the center of the label is within the range
-        if x_min <= x <= x_max and y_min <= y <= y_max:
-            filtered_labels.append(new_label)
+        # Add labels that fall within range
+        for i, label in enumerate(valid_labels):
+            if label_mask[i]:
+                filtered_labels.append(label.copy())
+    
+    # Add back DontCare labels
+    filtered_labels.extend([label.copy() for label in labels if label['type'] == 'DontCare'])
     
     return filtered_points, filtered_labels
 
